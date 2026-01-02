@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,7 +11,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"spotiflac/backend"
+	"strings"
+	"time"
 )
 
 var (
@@ -51,19 +55,13 @@ func main() {
 // =============================================================================
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // =============================================================================
 // Metadata Endpoint
 // =============================================================================
-
-type MetadataRequest struct {
-	URL     string  `json:"url"`
-	Batch   bool    `json:"batch"`
-	Delay   float64 `json:"delay"`
-	Timeout float64 `json:"timeout"`
-}
 
 func handleMetadata(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -74,14 +72,12 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeout := 60.0
-	if t := r.URL.Query().Get("timeout"); t != "" {
-		fmt.Sscanf(t, "%f", &timeout)
-	}
-
 	log.Printf("Fetching metadata for: %s", url)
 
-	result, err := backend.FetchSpotifyMetadata(url, false, 0, timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result, err := backend.GetFilteredSpotifyData(ctx, url, false, 0)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
@@ -95,23 +91,23 @@ func handleMetadata(w http.ResponseWriter, r *http.Request) {
 // =============================================================================
 
 type DownloadRequest struct {
-	ISRC            string `json:"isrc"`
-	SpotifyID       string `json:"spotify_id"`
-	TrackName       string `json:"track_name"`
-	ArtistName      string `json:"artist_name"`
-	AlbumName       string `json:"album_name"`
-	AlbumArtist     string `json:"album_artist"`
-	ReleaseDate     string `json:"release_date"`
-	CoverURL        string `json:"cover_url"`
-	TrackNumber     int    `json:"track_number"`
-	DiscNumber      int    `json:"disc_number"`
-	TotalTracks     int    `json:"total_tracks"`
-	Source          string `json:"source"`
-	Quality         string `json:"quality"`
-	EmbedLyrics     bool   `json:"embed_lyrics"`
-	EmbedMaxCover   bool   `json:"embed_max_cover"`
-	OutputDir       string `json:"output_dir"`
-	FilenameFormat  string `json:"filename_format"`
+	ISRC           string `json:"isrc"`
+	SpotifyID      string `json:"spotify_id"`
+	TrackName      string `json:"track_name"`
+	ArtistName     string `json:"artist_name"`
+	AlbumName      string `json:"album_name"`
+	AlbumArtist    string `json:"album_artist"`
+	ReleaseDate    string `json:"release_date"`
+	CoverURL       string `json:"cover_url"`
+	TrackNumber    int    `json:"track_number"`
+	DiscNumber     int    `json:"disc_number"`
+	TotalTracks    int    `json:"total_tracks"`
+	Source         string `json:"source"`
+	Quality        string `json:"quality"`
+	EmbedLyrics    bool   `json:"embed_lyrics"`
+	EmbedMaxCover  bool   `json:"embed_max_cover"`
+	OutputDir      string `json:"output_dir"`
+	FilenameFormat string `json:"filename_format"`
 }
 
 type DownloadResponse struct {
@@ -186,7 +182,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 
 func downloadFromTidal(req DownloadRequest) (string, error) {
 	downloader := backend.NewTidalDownloader("")
-	
+
 	// Search for track by ISRC
 	track, err := downloader.SearchTrackByMetadataWithISRC(req.TrackName, req.ArtistName, req.ISRC, 0)
 	if err != nil {
@@ -222,7 +218,7 @@ func downloadFromTidal(req DownloadRequest) (string, error) {
 
 func downloadFromQobuz(req DownloadRequest) (string, error) {
 	downloader := backend.NewQobuzDownloader()
-	
+
 	quality := "6" // Default to 16-bit FLAC
 	if req.Quality != "" {
 		quality = req.Quality
@@ -251,9 +247,15 @@ func downloadFromQobuz(req DownloadRequest) (string, error) {
 
 func downloadFromAmazon(req DownloadRequest) (string, error) {
 	downloader := backend.NewAmazonDownloader()
-	
-	return downloader.DownloadByISRCWithMetadata(
-		req.ISRC,
+
+	// Get Amazon URL from Spotify ID first
+	amazonURL, err := downloader.GetAmazonURLFromSpotify(req.SpotifyID)
+	if err != nil {
+		return "", err
+	}
+
+	return downloader.DownloadByURL(
+		amazonURL,
 		req.OutputDir,
 		req.FilenameFormat,
 		req.TrackNumber > 0,
@@ -263,12 +265,12 @@ func downloadFromAmazon(req DownloadRequest) (string, error) {
 		req.AlbumName,
 		req.AlbumArtist,
 		req.ReleaseDate,
-		true,
 		req.CoverURL,
-		req.EmbedMaxCover,
+		req.ISRC,
 		req.TrackNumber,
 		req.DiscNumber,
 		req.TotalTracks,
+		req.EmbedMaxCover,
 	)
 }
 
@@ -280,6 +282,7 @@ type LyricsRequest struct {
 	SpotifyID  string `json:"spotify_id"`
 	TrackName  string `json:"track_name"`
 	ArtistName string `json:"artist_name"`
+	AlbumName  string `json:"album_name"`
 	OutputDir  string `json:"output_dir"`
 }
 
@@ -304,8 +307,19 @@ func handleLyrics(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Downloading lyrics for: %s - %s", req.ArtistName, req.TrackName)
 
 	client := backend.NewLyricsClient()
-	result, err := client.DownloadLyrics(req.SpotifyID, req.TrackName, req.ArtistName, "", req.OutputDir, "{artist} - {title}", false, 0, false, 0)
-	
+	lyricsReq := backend.LyricsDownloadRequest{
+		SpotifyID:   req.SpotifyID,
+		TrackName:   req.TrackName,
+		ArtistName:  req.ArtistName,
+		AlbumName:   req.AlbumName,
+		OutputDir:   req.OutputDir,
+		FileFormat:  "{artist} - {title}",
+		TrackNumber: false,
+		Position:    0,
+	}
+
+	result, err := client.DownloadLyrics(lyricsReq)
+
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -354,10 +368,10 @@ func handleCover(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Downloading cover for: %s - %s", req.ArtistName, req.TrackName)
 
-	client := backend.NewCoverClient()
-	filename := backend.SanitizeFilename(fmt.Sprintf("%s - %s.jpg", req.ArtistName, req.TrackName))
+	filename := sanitizeFilenameSimple(fmt.Sprintf("%s - %s.jpg", req.ArtistName, req.TrackName))
 	filePath := filepath.Join(req.OutputDir, filename)
 
+	client := backend.NewCoverClient()
 	err := client.DownloadCoverToPath(req.CoverURL, filePath, true)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
@@ -417,7 +431,10 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Searching Spotify for: %s", query)
 
-	result, err := backend.SearchSpotify(query, limit)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := backend.SearchSpotify(ctx, query, limit)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
 		return
@@ -448,4 +465,25 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(result)
+}
+
+// =============================================================================
+// Utilities
+// =============================================================================
+
+// sanitizeFilenameSimple removes invalid characters from filename
+func sanitizeFilenameSimple(name string) string {
+	// Remove characters not allowed in filenames
+	invalid := regexp.MustCompile(`[<>:"/\\|?*]`)
+	name = invalid.ReplaceAllString(name, "")
+
+	// Trim spaces and dots
+	name = strings.TrimSpace(name)
+	name = strings.TrimRight(name, ".")
+
+	if name == "" {
+		name = "untitled"
+	}
+
+	return name
 }
