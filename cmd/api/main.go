@@ -308,14 +308,14 @@ func handleLyrics(w http.ResponseWriter, r *http.Request) {
 
 	client := backend.NewLyricsClient()
 	lyricsReq := backend.LyricsDownloadRequest{
-		SpotifyID:   req.SpotifyID,
-		TrackName:   req.TrackName,
-		ArtistName:  req.ArtistName,
-		AlbumName:   req.AlbumName,
-		OutputDir:   req.OutputDir,
-		FileFormat:  "{artist} - {title}",
-		TrackNumber: false,
-		Position:    0,
+		SpotifyID:      req.SpotifyID,
+		TrackName:      req.TrackName,
+		ArtistName:     req.ArtistName,
+		AlbumName:      req.AlbumName,
+		OutputDir:      req.OutputDir,
+		FilenameFormat: "{artist} - {title}",
+		TrackNumber:    false,
+		Position:       0,
 	}
 
 	result, err := client.DownloadLyrics(lyricsReq)
