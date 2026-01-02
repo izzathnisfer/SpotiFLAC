@@ -9,7 +9,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 
 import config
-from handlers import start, download, settings, queue, lyrics, cover, check
+from handlers import start, download, settings, queue, lyrics, cover, check, search
 from services.database import init_database
 
 # Configure logging
@@ -130,6 +130,14 @@ async def handle_check(client: Client, message: Message):
     await check.handle(client, message)
 
 
+@app.on_message(filters.command("search"))
+async def handle_search(client: Client, message: Message):
+    """Handle /search <query> command."""
+    if not is_allowed(message.from_user.id):
+        return
+    await search.handle(client, message)
+
+
 # =============================================================================
 # URL Auto-Detection Handler
 # =============================================================================
@@ -171,6 +179,8 @@ async def handle_callback(client: Client, callback_query):
         await cover.handle_callback(client, callback_query)
     elif data.startswith("chk:"):
         await check.handle_callback(client, callback_query)
+    elif data.startswith("src:"):
+        await search.handle_callback(client, callback_query)
     else:
         await callback_query.answer()
 

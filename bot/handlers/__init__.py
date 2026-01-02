@@ -9,6 +9,7 @@ from . import queue
 from . import lyrics
 from . import cover
 from . import check
+from . import search
 
 __all__ = [
     "start",
@@ -18,4 +19,5 @@ __all__ = [
     "lyrics",
     "cover",
     "check",
+    "search",
 ]
