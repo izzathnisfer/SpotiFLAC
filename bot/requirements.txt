@@ -1,0 +1,14 @@
+# Pyrogram with MTProto (2GB file support)
+pyrogram>=2.0.106
+tgcrypto>=1.2.5
+
+# Async support
+aiohttp>=3.9.0
+aiosqlite>=0.19.0
+aiofiles>=23.2.1
+
+# Environment config
+python-dotenv>=1.0.0
+
+# Performance (optional but recommended)
+uvloop>=0.19.0;platform_system!="Windows"
