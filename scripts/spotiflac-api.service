@@ -1,0 +1,15 @@
+[Unit]
+Description=SpotiFLAC Go API Server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Projects/SpotiFLAC
+ExecStart=/usr/local/go/bin/go run ./cmd/api
+Restart=always
+RestartSec=5
+Environment=PATH=/usr/local/go/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target
