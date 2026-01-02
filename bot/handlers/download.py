@@ -273,10 +273,10 @@ async def download_single_track(
     cached = await database.get_cached_file(isrc)
     if cached:
         # Forward from cache channel (instant!)
-        await client.forward_messages(
+        await client.copy_message(
             chat_id=user_id,
             from_chat_id=config.CACHE_CHANNEL_ID,
-            message_ids=cached['message_id']
+            message_id=cached['message_id']
         )
         await callback.message.edit_text(
             callback.message.text + "\n\n✅ **Sent from cache!**"
@@ -383,11 +383,11 @@ async def download_single_track(
             source=settings.get('source', 'auto')
         )
         
-        # Forward to user
-        await client.forward_messages(
+        # Send copy to user (without forward tag)
+        await client.copy_message(
             chat_id=user_id,
             from_chat_id=config.CACHE_CHANNEL_ID,
-            message_ids=cache_msg.id
+            message_id=cache_msg.id
         )
         
         # Update message
