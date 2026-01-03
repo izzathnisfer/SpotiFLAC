@@ -1,32 +1,115 @@
 """
-Test Bot with Config
+SpotiFLAC Telegram Bot
+Main entry point.
 """
+import asyncio
 import logging
 import sys
-from pyrogram import Client, filters
+import os
+from pathlib import Path
+
+# Add project root to path
+sys.path.append(str(Path(__file__).parent.parent))
+
+from pyrogram import Client, idle
+from pyrogram.enums import ParseMode
+
 import config
+from handlers import start, radio
+from services.database import init_database
+from radio.engine import get_radio_engine
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=getattr(logging, config.LOG_LEVEL),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("bot.log")
+    ]
 )
 logger = logging.getLogger(__name__)
 
-app = Client(
-    name="test_config_bot",
-    api_id=config.API_ID,
-    api_hash=config.API_HASH,
-    bot_token=config.BOT_TOKEN,
-    workdir='./data'
-)
+# Reduce noise from libraries
+logging.getLogger("pyrogram").setLevel(logging.INFO)
+logging.getLogger("aiohttp").setLevel(logging.WARNING)
 
-@app.on_message(filters.command("ping"))
-async def handle_ping(client, message):
-    logger.info("PING RECEIVED")
-    await message.reply("CONFIG PONG")
+class SpotiFLACBot(Client):
+    def __init__(self):
+        super().__init__(
+            name="spotiflac_aws",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            bot_token=config.BOT_TOKEN,
+            workdir=str(config.DATA_DIR),
+            plugins=dict(root="handlers")
+        )
+
+    async def start(self):
+        logger.info("Starting SpotiFLAC Bot...")
+        await super().start()
+        
+        # Initialize database
+        logger.info("Initializing database...")
+        try:
+            await init_database()
+        except Exception as e:
+            logger.error(f"Failed to init database: {e}", exc_info=True)
+            # We continue anyway, though some features might fail
+            
+        # Register commands
+        logger.info("Registering commands...")
+        await start.setup_commands(self)
+        
+        # Initialize Radio Engine (starts streaming loop if active sessions exist)
+        if config.RADIO_ENABLED:
+            logger.info("Initializing Radio Engine...")
+            # We don't need to explicitly start it here, just accessing it initializes the singleton
+            # But we might want to recover active sessions in the future
+            pass
+            
+        me = await self.get_me()
+        logger.info(f"Bot started as @{me.username} ({me.id})")
+        
+        # Notify admin of startup
+        for user_id in config.ALLOWED_USERS:
+            try:
+                await self.send_message(user_id, "🚀 **SpotiFLAC Bot Started!**")
+            except Exception:
+                pass
+
+    async def stop(self, *args):
+        logger.info("Stopping SpotiFLAC Bot...")
+        
+        # Shutdown Radio Engine
+        if config.RADIO_ENABLED:
+            logger.info("Shutting down Radio Engine...")
+            engine = get_radio_engine()
+            await engine.shutdown_all()
+            
+        await super().stop()
+        logger.info("Bot stopped.")
+
+async def main():
+    # Ensure data directory exists
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    
+    app = SpotiFLACBot()
+    
+    # Start the bot
+    await app.start()
+    
+    # Idle until signal
+    await idle()
+    
+    # Stop
+    await app.stop()
 
 if __name__ == "__main__":
-    print("--- STARTING CONFIG BOT ---")
-    app.run()
+    try:
+        # Use asyncio.run for the main loop
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.critical(f"Fatal error: {e}", exc_info=True)
