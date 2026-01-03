@@ -36,7 +36,7 @@ def create_app() -> Client:
     
     # Create client with MTProto (2GB file support!)
     app = Client(
-        name="spotiflac_bot",
+        name="spotiflac_aws",
         api_id=config.API_ID,
         api_hash=config.API_HASH,
         bot_token=config.BOT_TOKEN,
@@ -57,11 +57,8 @@ app = create_app()
 @app.on_message(group=-1)
 async def log_messages(client: Client, message: Message):
     """Log every incoming message for debugging."""
-    user = message.from_user
-    username = f"@{user.username}" if user and user.username else "NoUsername"
-    user_id = user.id if user else "NoID"
     text = message.text or "NoText"
-    logger.info(f"DEBUG: Received message from {username} ({user_id}): {text}")
+    logger.info(f"DEBUG: Received message: {text}")
 
 
 # =============================================================================
