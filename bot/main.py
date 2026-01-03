@@ -272,23 +272,57 @@ async def handle_first_start(client: Client, message: Message):
 
 
 # =============================================================================
+# Radio Session Shutdown
+# =============================================================================
+
+async def shutdown_all_radio_sessions():
+    """Gracefully shutdown all active radio sessions."""
+    try:
+        from radio.engine import get_radio_engine
+        engine = get_radio_engine()
+        await engine.shutdown_all()
+        logger.info("All radio sessions shut down gracefully")
+    except Exception as e:
+        logger.error(f"Error shutting down radio sessions: {e}")
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
 if __name__ == "__main__":
     import asyncio
+    import signal
     
     print("""
     ╔═══════════════════════════════════════╗
     ║       SpotiFLAC Telegram Bot          ║
     ║   2GB uploads via Pyrogram MTProto    ║
+    ║        + Radio Streaming 📻           ║
     ╚═══════════════════════════════════════╝
     """)
     
-    # Run startup tasks
+    # Create event loop
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Signal handler for graceful shutdown
+    def handle_signal(sig, frame):
+        logger.info(f"Received signal {sig}, shutting down...")
+        loop.run_until_complete(shutdown_all_radio_sessions())
+        app.stop()
+    
+    # Register signal handlers (Unix-like systems)
+    try:
+        signal.signal(signal.SIGINT, handle_signal)
+        signal.signal(signal.SIGTERM, handle_signal)
+    except (ValueError, OSError) as e:
+        logger.warning(f"Could not register signal handlers: {e}")
+    
+    # Run startup tasks
     loop.run_until_complete(startup())
     
     # Start the bot
     logger.info("Starting bot...")
     app.run()
+
