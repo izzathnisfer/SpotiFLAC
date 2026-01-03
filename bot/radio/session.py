@@ -121,8 +121,15 @@ class SessionManager:
         self._sessions: Dict[str, RadioSession] = {}  # session_id -> RadioSession
         self._user_sessions: Dict[int, str] = {}      # user_id -> session_id
         self._used_ports: set = set()
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
         self._public_host: str = "0.0.0.0"  # Will be set from config
+    
+    @property
+    def lock(self) -> asyncio.Lock:
+        """Lazy initialization of async lock."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
     
     @classmethod
     def get_instance(cls) -> "SessionManager":
@@ -144,7 +151,7 @@ class SessionManager:
         Create a new radio session for a user.
         Returns None if user already has an active session.
         """
-        async with self._lock:
+        async with self.lock:
             # Check one-session-per-user rule
             if user_id in self._user_sessions:
                 existing_id = self._user_sessions[user_id]
@@ -216,7 +223,7 @@ class SessionManager:
         Stop a session and clean up resources.
         Returns True if session was stopped, False if not found.
         """
-        async with self._lock:
+        async with self.lock:
             session = self._sessions.get(session_id)
             if not session:
                 return False
@@ -315,7 +322,7 @@ class SessionManager:
         Called on startup. Returns count of cleaned sessions.
         """
         count = 0
-        async with self._lock:
+        async with self.lock:
             expired_ids = []
             
             for session_id, session in self._sessions.items():

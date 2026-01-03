@@ -27,14 +27,26 @@ class RingBuffer:
     
     def __init__(self, max_size: int = BUFFER_SIZE):
         self._buffer: deque = deque(maxlen=max_size // CHUNK_SIZE)
-        self._lock = asyncio.Lock()
-        self._new_data = asyncio.Event()
+        self._lock: Optional[asyncio.Lock] = None
+        self._new_data: Optional[asyncio.Event] = None
+    
+    @property
+    def lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+    
+    @property
+    def new_data(self) -> asyncio.Event:
+        if self._new_data is None:
+            self._new_data = asyncio.Event()
+        return self._new_data
     
     async def write(self, data: bytes):
         """Write data to the buffer."""
-        async with self._lock:
+        async with self.lock:
             self._buffer.append(data)
-            self._new_data.set()
+            self.new_data.set()
     
     async def read(self, timeout: float = 5.0) -> Optional[bytes]:
         """
@@ -45,10 +57,10 @@ class RingBuffer:
         try:
             # Wait for data if buffer is empty
             if not self._buffer:
-                self._new_data.clear()
-                await asyncio.wait_for(self._new_data.wait(), timeout=timeout)
+                self.new_data.clear()
+                await asyncio.wait_for(self.new_data.wait(), timeout=timeout)
             
-            async with self._lock:
+            async with self.lock:
                 if self._buffer:
                     return self._buffer.popleft()
                 return None
@@ -81,7 +93,13 @@ class StreamingServer:
         self._runner: Optional[web.AppRunner] = None
         self._site: Optional[web.TCPSite] = None
         self._is_running = False
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
+    
+    @property
+    def lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
     
     async def start(self) -> str:
         """
@@ -108,7 +126,7 @@ class StreamingServer:
         self._is_running = False
         
         # Close all client connections
-        async with self._lock:
+        async with self.lock:
             for client in list(self._clients):
                 try:
                     await client.write_eof()
@@ -132,7 +150,7 @@ class StreamingServer:
     
     async def _broadcast_chunk(self, chunk: bytes):
         """Broadcast a chunk to all connected clients."""
-        async with self._lock:
+        async with self.lock:
             disconnected = []
             
             for client in self._clients:
@@ -170,7 +188,7 @@ class StreamingServer:
         await response.prepare(request)
         
         # Add to clients set
-        async with self._lock:
+        async with self.lock:
             self._clients.add(response)
         
         client_ip = request.remote
@@ -187,7 +205,7 @@ class StreamingServer:
         except Exception as e:
             logger.debug(f"Client error: {e}")
         finally:
-            async with self._lock:
+            async with self.lock:
                 self._clients.discard(response)
             logger.info(f"Client disconnected: {client_ip} (remaining: {len(self._clients)})")
         
