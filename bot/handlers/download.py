@@ -363,19 +363,24 @@ async def download_single_track(
             pass  # Ignore rate limit errors
     
     try:
-        # Upload to cache channel
-        cache_msg = await client.send_document(
+        # Upload to cache channel as AUDIO (playable in Telegram)
+        duration_seconds = track.get('duration_ms', 0) // 1000
+        
+        cache_msg = await client.send_audio(
             chat_id=config.CACHE_CHANNEL_ID,
-            document=file_path,
+            audio=file_path,
             caption=caption,
+            title=track.get('name', 'Unknown'),
+            performer=track.get('artists', 'Unknown'),
+            duration=duration_seconds,
             progress=upload_progress
         )
         
-        # Store in database
+        # Store in database (use audio.file_id instead of document.file_id)
         file_size = Path(file_path).stat().st_size
         await database.cache_file(
             isrc=isrc,
-            file_id=cache_msg.document.file_id,
+            file_id=cache_msg.audio.file_id,
             message_id=cache_msg.id,
             file_name=Path(file_path).name,
             file_size=file_size,
