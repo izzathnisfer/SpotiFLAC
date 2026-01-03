@@ -309,9 +309,6 @@ async def handle_first_start(client: Client, message: Message):
 # =============================================================================
 
 if __name__ == "__main__":
-    import asyncio
-    import signal
-    
     print("""
     ╔═══════════════════════════════════════╗
     ║       SpotiFLAC Telegram Bot          ║
@@ -319,28 +316,32 @@ if __name__ == "__main__":
     ║        + Radio Streaming 📻           ║
     ╚═══════════════════════════════════════╝
     """)
+
+    async def main():
+       await startup()
+       # No need explicit app.start()/idle() if we pass this coroutine to app.run()?
+       # Actually pyrogram app.run() accepts a coroutine only in newer versions?
+       # Let's stick to Safe Pattern:
+       await app.start()
+       await idle()
+       await app.stop()
+
+    # The issue: app.run() doesn't accept coroutine in all versions.
+    # But Client.run() does?
+    # Let's try to just run app.run() and hook startup via `app.start`?? 
+    # No, let's keep it simple.
     
-    # Create event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # We'll use the Compose pattern:
+    async def runner():
+        await startup()
+        await app.start()
+        logger.info("Bot started and listening...")
+        await idle()
+        await app.stop()
+        # shutdown_all_radio_sessions() was here
+
+    from pyrogram import idle
     
-    # Signal handler for graceful shutdown
-    def handle_signal(sig, frame):
-        logger.info(f"Received signal {sig}, shutting down...")
-        # loop.run_until_complete(shutdown_all_radio_sessions())
-        app.stop()
-    
-    # Register signal handlers (Unix-like systems)
-    try:
-        signal.signal(signal.SIGINT, handle_signal)
-        signal.signal(signal.SIGTERM, handle_signal)
-    except (ValueError, OSError) as e:
-        logger.warning(f"Could not register signal handlers: {e}")
-    
-    # Run startup tasks
-    loop.run_until_complete(startup())
-    
-    # Start the bot
-    logger.info("Starting bot...")
-    app.run()
+    # Just run the runner
+    app.run(runner())
 
