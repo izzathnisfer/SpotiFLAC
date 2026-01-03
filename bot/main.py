@@ -116,6 +116,13 @@ async def main():
     
     app = SpotiFLACBot()
     
+    # CRITICAL: Register handlers BEFORE starting the client
+    # Pyrogram's dispatcher only picks up handlers registered before start()
+    logger.info("Registering handlers BEFORE start...")
+    start.setup_handlers(app)
+    radio.setup_handlers(app)
+    logger.info(f"Handlers registered: {len(app.dispatcher.groups)} groups")
+    
     # Start the bot
     await app.start()
     
