@@ -10,7 +10,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 
 import config
-from handlers import start, download, settings, queue, lyrics, cover, check, search #, radio
+# from handlers import start, download, settings, queue, lyrics, cover, check, search #, radio
 from services.database import init_database
 
 # Configure logging
