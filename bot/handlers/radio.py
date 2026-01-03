@@ -14,6 +14,7 @@ from pyrogram.types import (
     InlineKeyboardButton,
     ForceReply,
 )
+from pyrogram.handlers import MessageHandler, CallbackQueryHandler
 
 from radio.session import RadioSession, get_session_manager
 from radio.queue import QueueItem, get_queue_manager
@@ -655,3 +656,21 @@ async def handle_add_song_reply(client: Client, message: Message):
     except Exception as e:
         logger.error(f"Error in handle_add_song_reply: {e}", exc_info=True)
         await message.reply("❌ Error adding song.")
+
+
+def setup_handlers(client: Client):
+    """Register radio handlers."""
+    # Commands
+    client.add_handler(MessageHandler(handle_radio, filters.command("radio")))
+    client.add_handler(MessageHandler(handle_radio_start, filters.command("radio_start")))
+    client.add_handler(MessageHandler(handle_radio_end, filters.command("radio_end")))
+    
+    # Callbacks
+    client.add_handler(CallbackQueryHandler(handle_callback, filters.regex(r"^rad:")))
+    
+    # Reply handler for adding songs (checks if reply is to a force reply from this bot)
+    # Note: This is a simple check. For production, maybe check the specific text of the prompt.
+    client.add_handler(MessageHandler(
+        handle_add_song_reply, 
+        filters.reply & filters.create(lambda _, __, m: m.reply_to_message.from_user.is_self)
+    ))

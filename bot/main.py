@@ -73,6 +73,11 @@ class SpotiFLACBot(Client):
         logger.info("Registering commands...")
         await start.setup_commands(self)
         
+        # Register handlers
+        logger.info("Registering handlers...")
+        start.setup_handlers(self)
+        radio.setup_handlers(self)
+        
         # Initialize Radio Engine (starts streaming loop if active sessions exist)
         if config.RADIO_ENABLED:
             logger.info(f"Initializing Radio Engine on loop {get_loop_id()}...")

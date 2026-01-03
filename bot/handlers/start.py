@@ -3,7 +3,8 @@ Start and Help Command Handlers
 """
 
 from pyrogram import Client
-from pyrogram import Client
+from pyrogram import Client, filters
+from pyrogram.handlers import MessageHandler
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 import logging
 
@@ -89,6 +90,12 @@ BOT_COMMANDS = [
 async def setup_commands(client: Client):
     """Set bot commands in Telegram menu."""
     await client.set_bot_commands(BOT_COMMANDS)
+
+
+def setup_handlers(client: Client):
+    """Register update handlers."""
+    client.add_handler(MessageHandler(handle, filters.command("start")))
+    client.add_handler(MessageHandler(handle_help, filters.command("help")))
 
 
 async def handle(client: Client, message: Message):
