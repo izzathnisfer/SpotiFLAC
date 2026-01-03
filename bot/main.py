@@ -44,7 +44,7 @@ class SpotiFLACBot(Client):
         
         # Initialize database (on the same loop!)
         logger.info("Initializing database...")
-        await init_database()
+        # await init_database()
         
         logger.info("SpotiFLAC Bot started successfully!")
         
