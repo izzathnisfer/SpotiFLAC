@@ -199,11 +199,24 @@ async def startup():
     """Initialize on startup."""
     logger.info("Initializing database...")
     await init_database()
-    
-    logger.info("Setting bot commands...")
-    await start.setup_commands(app)
-    
     logger.info("SpotiFLAC Bot started successfully!")
+
+
+# Flag to track if commands are set
+_commands_set = False
+
+
+@app.on_message(filters.command("start") & filters.private)
+async def handle_first_start(client: Client, message: Message):
+    """Set bot commands on first interaction."""
+    global _commands_set
+    if not _commands_set:
+        try:
+            await start.setup_commands(client)
+            _commands_set = True
+            logger.info("Bot commands set successfully")
+        except Exception as e:
+            logger.warning(f"Could not set bot commands: {e}")
 
 
 # =============================================================================
