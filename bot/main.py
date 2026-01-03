@@ -199,6 +199,10 @@ async def startup():
     """Initialize on startup."""
     logger.info("Initializing database...")
     await init_database()
+    
+    logger.info("Setting bot commands...")
+    await start.setup_commands(app)
+    
     logger.info("SpotiFLAC Bot started successfully!")
 
 
