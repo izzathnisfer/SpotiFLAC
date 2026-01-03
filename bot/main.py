@@ -318,30 +318,28 @@ if __name__ == "__main__":
     """)
 
     async def main():
+       # Run startup tasks (Database init)
        await startup()
-       # No need explicit app.start()/idle() if we pass this coroutine to app.run()?
-       # Actually pyrogram app.run() accepts a coroutine only in newer versions?
-       # Let's stick to Safe Pattern:
+       
+       # Start the bot
+       logger.info("Starting bot...")
        await app.start()
+       logger.info("Bot started and listening...")
+       
+       # Idle and wait for stop signal
        await idle()
+       
+       # Stop the bot
        await app.stop()
+       # await shutdown_all_radio_sessions()
 
-    # The issue: app.run() doesn't accept coroutine in all versions.
-    # But Client.run() does?
-    # Let's try to just run app.run() and hook startup via `app.start`?? 
-    # No, let's keep it simple.
-    
-    # We'll use the Compose pattern:
-    async def runner():
-        await startup()
-        await app.start()
-        logger.info("Bot started and listening...")
-        await idle()
-        await app.stop()
-        # shutdown_all_radio_sessions() was here
-
+    import asyncio
     from pyrogram import idle
     
-    # Just run the runner
-    app.run(runner())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
 
