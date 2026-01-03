@@ -1,6 +1,7 @@
 """
 SpotiFLAC Telegram Bot - Main Entry Point
 """
+print("--- MAIN.PY SCRIPT STARTING ---")
 
 import logging
 import sys
@@ -9,7 +10,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 
 import config
-from handlers import start, download, settings, queue, lyrics, cover, check, search, radio
+from handlers import start, download, settings, queue, lyrics, cover, check, search # , radio
 from services.database import init_database
 
 # Configure logging
@@ -155,28 +156,28 @@ async def handle_search(client: Client, message: Message):
     await search.handle(client, message)
 
 
-@app.on_message(filters.command("radio"))
-async def handle_radio(client: Client, message: Message):
-    """Handle /radio command - show radio control panel."""
-    if not is_allowed(message.from_user.id):
-        return
-    await radio.handle_radio(client, message)
+# @app.on_message(filters.command("radio"))
+# async def handle_radio(client: Client, message: Message):
+#     """Handle /radio command - show radio control panel."""
+#     if not is_allowed(message.from_user.id):
+#         return
+#     await radio.handle_radio(client, message)
 
 
-@app.on_message(filters.command("radio_start"))
-async def handle_radio_start(client: Client, message: Message):
-    """Handle /radio_start command - start new radio session."""
-    if not is_allowed(message.from_user.id):
-        return
-    await radio.handle_radio_start(client, message)
+# @app.on_message(filters.command("radio_start"))
+# async def handle_radio_start(client: Client, message: Message):
+#     """Handle /radio_start command - start new radio session."""
+#     if not is_allowed(message.from_user.id):
+#         return
+#     await radio.handle_radio_start(client, message)
 
 
-@app.on_message(filters.command("radio_end"))
-async def handle_radio_end(client: Client, message: Message):
-    """Handle /radio_end command - stop radio session."""
-    if not is_allowed(message.from_user.id):
-        return
-    await radio.handle_radio_end(client, message)
+# @app.on_message(filters.command("radio_end"))
+# async def handle_radio_end(client: Client, message: Message):
+#     """Handle /radio_end command - stop radio session."""
+#     if not is_allowed(message.from_user.id):
+#         return
+#     await radio.handle_radio_end(client, message)
 
 
 # =============================================================================
@@ -248,8 +249,8 @@ async def handle_callback(client: Client, callback_query):
         await check.handle_callback(client, callback_query)
     elif data.startswith("src:"):
         await search.handle_callback(client, callback_query)
-    elif data.startswith("rad:"):
-        await radio.handle_callback(client, callback_query)
+#     elif data.startswith("rad:"):
+#         await radio.handle_radio_start(client, callback_query)
     else:
         await callback_query.answer()
 
@@ -292,15 +293,15 @@ async def handle_first_start(client: Client, message: Message):
 # Radio Session Shutdown
 # =============================================================================
 
-async def shutdown_all_radio_sessions():
-    """Gracefully shutdown all active radio sessions."""
-    try:
-        from radio.engine import get_radio_engine
-        engine = get_radio_engine()
-        await engine.shutdown_all()
-        logger.info("All radio sessions shut down gracefully")
-    except Exception as e:
-        logger.error(f"Error shutting down radio sessions: {e}")
+# async def shutdown_all_radio_sessions():
+#     """Gracefully shutdown all active radio sessions."""
+#     try:
+#         from radio.engine import get_radio_engine
+#         engine = get_radio_engine()
+#         await engine.shutdown_all()
+#         logger.info("All radio sessions shut down gracefully")
+#     except Exception as e:
+#         logger.error(f"Error shutting down radio sessions: {e}")
 
 
 # =============================================================================
@@ -326,7 +327,7 @@ if __name__ == "__main__":
     # Signal handler for graceful shutdown
     def handle_signal(sig, frame):
         logger.info(f"Received signal {sig}, shutting down...")
-        loop.run_until_complete(shutdown_all_radio_sessions())
+        # loop.run_until_complete(shutdown_all_radio_sessions())
         app.stop()
     
     # Register signal handlers (Unix-like systems)
