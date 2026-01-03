@@ -11,7 +11,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 
 import config
-from handlers import start, download, settings, queue, lyrics, cover, check, search, radio
+from handlers import start, download, settings, queue, lyrics, cover, check, search #, radio
 from services.database import init_database
 
 # Configure logging
@@ -115,20 +115,23 @@ async def handle_search(client: Client, message: Message):
     if not is_allowed(message.from_user.id): return
     await search.handle(client, message)
 
-@app.on_message(filters.command("radio"))
-async def handle_radio(client: Client, message: Message):
-    if not is_allowed(message.from_user.id): return
-    await radio.handle_radio(client, message)
-
-@app.on_message(filters.command("radio_start"))
-async def handle_radio_start(client: Client, message: Message):
-    if not is_allowed(message.from_user.id): return
-    await radio.handle_radio_start(client, message)
-
-@app.on_message(filters.command("radio_end"))
-async def handle_radio_end(client: Client, message: Message):
-    if not is_allowed(message.from_user.id): return
-    await radio.handle_radio_end(client, message)
+# @app.on_message(filters.command("radio"))
+# async def handle_radio(client: Client, message: Message):
+#     if not is_allowed(message.from_user.id): return
+#     await radio.handle_radio(client, message)
+# 
+# @app.on_message(filters.command("radio_start"))
+# async def handle_radio_start(client: Client, message: Message):
+#     if not is_allowed(message.from_user.id): return
+#     await radio.handle_radio_start(client, message)
+# 
+# @app.on_message(filters.command("radio_end"))
+# async def handle_radio_end(client: Client, message: Message):
+#     if not is_allowed(message.from_user.id): return
+#     await radio.handle_radio_end(client, message)
+# 
+# # Callback for radio
+# # elif data.startswith("rad:"): await radio.handle_callback(client, callback_query)
 
 # Spotify URL Handler
 SPOTIFY_URL_PATTERN = r"(https?://)?(open\.)?spotify\.com/(track|album|playlist|artist)/[a-zA-Z0-9]+"
@@ -160,7 +163,7 @@ async def handle_callback(client: Client, callback_query):
     elif data.startswith("cov:"): await cover.handle_callback(client, callback_query)
     elif data.startswith("chk:"): await check.handle_callback(client, callback_query)
     elif data.startswith("src:"): await search.handle_callback(client, callback_query)
-    elif data.startswith("rad:"): await radio.handle_callback(client, callback_query)
+    # elif data.startswith("rad:"): await radio.handle_callback(client, callback_query)
     else: await callback_query.answer()
 
 @app.on_message(filters.command("ping") & filters.private)
