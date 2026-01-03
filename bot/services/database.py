@@ -50,6 +50,78 @@ async def init_database():
         """)
         
         await db.commit()
+    
+    # Initialize radio streaming tables
+    await init_radio_tables()
+
+
+async def init_radio_tables():
+    """Initialize database tables for radio streaming feature."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Radio sessions table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS radio_sessions (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL UNIQUE,
+                stream_port INTEGER NOT NULL,
+                stream_url TEXT NOT NULL,
+                bitrate INTEGER DEFAULT 128,
+                status TEXT DEFAULT 'active',
+                repeat_enabled INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                started_at TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                last_activity TIMESTAMP,
+                current_track_index INTEGER DEFAULT 0,
+                current_track_position REAL DEFAULT 0,
+                total_duration_played REAL DEFAULT 0
+            )
+        """)
+        
+        # Radio queue table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS radio_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                track_isrc TEXT NOT NULL,
+                track_name TEXT NOT NULL,
+                artist_name TEXT NOT NULL,
+                album_name TEXT,
+                duration INTEGER NOT NULL DEFAULT 0,
+                file_path TEXT,
+                status TEXT DEFAULT 'pending',
+                spotify_id TEXT,
+                cover_url TEXT,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES radio_sessions(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Radio logs table
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS radio_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                event_data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES radio_sessions(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Indexes for faster queries
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_radio_sessions_user ON radio_sessions(user_id)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_radio_queue_session ON radio_queue(session_id, position)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_radio_logs_session ON radio_logs(session_id)
+        """)
+        
+        await db.commit()
 
 
 # =============================================================================

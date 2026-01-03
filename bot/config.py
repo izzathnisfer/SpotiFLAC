@@ -55,6 +55,15 @@ LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
 
 # =============================================================================
+# Radio Streaming Configuration
+# =============================================================================
+
+RADIO_ENABLED: bool = os.getenv("RADIO_ENABLED", "true").lower() == "true"
+RADIO_HOST: str = os.getenv("RADIO_HOST", "0.0.0.0")
+RADIO_PUBLIC_HOST: str = os.getenv("RADIO_PUBLIC_HOST", "13.233.144.188")
+
+
+# =============================================================================
 # Bot Settings
 # =============================================================================
 
