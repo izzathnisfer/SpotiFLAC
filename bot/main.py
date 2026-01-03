@@ -23,7 +23,8 @@ async def main():
     
     # Initialize database
     logger.info("Initializing database...")
-    await init_database()
+    # await init_database()
+
     
     # Create client INSIDE the loop
     logger.info("Creating client...")
