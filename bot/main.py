@@ -154,6 +154,32 @@ async def handle_spotify_url(client: Client, message: Message):
 
 
 # =============================================================================
+# Plain Text = Search
+# =============================================================================
+
+@app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "settings", "queue", "cancel", "lyrics", "cover", "check", "search", "ping"]))
+async def handle_plain_text(client: Client, message: Message):
+    """Handle plain text messages as search queries."""
+    if not is_allowed(message.from_user.id):
+        return
+    
+    text = message.text.strip()
+    
+    # Skip if it's a Spotify URL (handled by the regex handler above)
+    if "spotify.com" in text.lower():
+        return
+    
+    # Skip very short messages
+    if len(text) < 2:
+        return
+    
+    # Treat as search query
+    # Create a fake /search command message
+    message.text = f"/search {text}"
+    await search.handle(client, message)
+
+
+# =============================================================================
 # Callback Query Handler
 # =============================================================================
 
