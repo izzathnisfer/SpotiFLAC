@@ -3,7 +3,11 @@ Start and Help Command Handlers
 """
 
 from pyrogram import Client
+from pyrogram import Client
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 WELCOME_TEXT = """
@@ -89,27 +93,35 @@ async def setup_commands(client: Client):
 
 async def handle(client: Client, message: Message):
     """Handle /start command."""
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🔍 Search", switch_inline_query_current_chat=""),
-            InlineKeyboardButton("⚙️ Settings", callback_data="set:menu"),
-        ],
-        [
-            InlineKeyboardButton("❓ Help", callback_data="cmd:help")
-        ]
-    ])
-    
-    await message.reply(
-        WELCOME_TEXT,
-        reply_markup=keyboard
-    )
+    try:
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🔍 Search", switch_inline_query_current_chat=""),
+                InlineKeyboardButton("⚙️ Settings", callback_data="set:menu"),
+            ],
+            [
+                InlineKeyboardButton("❓ Help", callback_data="cmd:help")
+            ]
+        ])
+        
+        await message.reply(
+            WELCOME_TEXT,
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        logger.error(f"Error in start command: {e}", exc_info=True)
+        await message.reply("❌ An error occurred. Please try again later.")
 
 
 async def handle_help(client: Client, message: Message):
     """Handle /help command."""
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("⚙️ Settings", callback_data="set:menu"),
-        ]
-    ])
-    await message.reply(HELP_TEXT, reply_markup=keyboard)
+    try:
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("⚙️ Settings", callback_data="set:menu"),
+            ]
+        ])
+        await message.reply(HELP_TEXT, reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"Error in help command: {e}", exc_info=True)
+        await message.reply("❌ An error occurred. Please try again later.")

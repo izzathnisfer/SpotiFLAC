@@ -16,6 +16,13 @@ from .constants import (
     FFMPEG_START_TIMEOUT,
 )
 
+# Debug trace function
+def get_loop_id():
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        return "no_loop" 
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +38,7 @@ class AudioTranscoder:
         self._current_file: Optional[str] = None
         self._bytes_produced: int = 0
         self._is_running: bool = False
+        logger.debug(f"AudioTranscoder initialized in loop {get_loop_id()}")
     
     def _build_ffmpeg_cmd(self, input_path: str) -> list:
         """Build FFmpeg command for transcoding to MP3 stream."""
@@ -77,6 +85,7 @@ class AudioTranscoder:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            logger.info(f"FFmpeg process {self._process.pid} started on loop {get_loop_id()}")
             
             # Read and yield chunks
             while self._is_running and self._process.stdout:
@@ -127,8 +136,9 @@ class AudioTranscoder:
                     await self._process.wait()
             except ProcessLookupError:
                 pass  # Process already finished
+                pass  # Process already finished
             except Exception as e:
-                logger.warning(f"Error stopping FFmpeg: {e}")
+                logger.warning(f"Error stopping FFmpeg: {e}", exc_info=True)
             finally:
                 self._process = None
         

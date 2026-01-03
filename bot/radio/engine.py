@@ -24,6 +24,13 @@ from .constants import (
     TRACK_FETCH_TIMEOUT,
 )
 
+# Debug trace function
+def get_loop_id():
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        return "no_loop" 
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +49,9 @@ class RadioEngine:
         self._transcoder_pool = get_transcoder_pool()
         self._streaming_pool = get_streaming_pool()
         self._scheduler = get_scheduler()
+        self._scheduler = get_scheduler()
         self._download_callback: Optional[Callable[[str, str], Awaitable[Optional[str]]]] = None
+        logger.debug(f"RadioEngine initialized in loop {get_loop_id()}")
     
     @classmethod
     def get_instance(cls) -> "RadioEngine":
@@ -77,11 +86,14 @@ class RadioEngine:
             return False
         
         # Start the streaming loop as a background task
-        task = asyncio.create_task(self._streaming_loop(session_id))
-        self._active_tasks[session_id] = task
-        
-        logger.info(f"Started streaming for session {session_id}")
-        return True
+        try:
+            task = asyncio.create_task(self._streaming_loop(session_id))
+            self._active_tasks[session_id] = task
+            logger.info(f"Started streaming for session {session_id} on loop {get_loop_id()}")
+            return True
+        except Exception as e:
+            logger.critical(f"Failed to spawn streaming loop for {session_id}: {e}", exc_info=True)
+            return False
     
     async def _streaming_loop(self, session_id: str):
         """
@@ -89,6 +101,7 @@ class RadioEngine:
         Handles track transitions, empty queue, and session termination.
         """
         try:
+            logger.info(f"Entering streaming loop for session {session_id} on loop {get_loop_id()}")
             while True:
                 session = await self._session_manager.get_session(session_id)
                 if not session or session.status not in (SESSION_STATUS_ACTIVE, SESSION_STATUS_PAUSED):

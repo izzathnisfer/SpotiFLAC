@@ -25,6 +25,13 @@ from .constants import (
     EVENT_SESSION_RESUME,
 )
 
+# Debug logging for loop tracing
+def get_loop_id():
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        return "no_loop"
+
 logger = logging.getLogger(__name__)
 
 
@@ -123,12 +130,14 @@ class SessionManager:
         self._used_ports: set = set()
         self._lock: Optional[asyncio.Lock] = None
         self._public_host: str = "0.0.0.0"  # Will be set from config
+        logger.debug(f"SessionManager initialized in loop {get_loop_id()}")
     
     @property
     def lock(self) -> asyncio.Lock:
         """Lazy initialization of async lock."""
         if self._lock is None:
             self._lock = asyncio.Lock()
+            logger.debug(f"SessionManager.lock created in loop {get_loop_id()}")
         return self._lock
     
     @classmethod

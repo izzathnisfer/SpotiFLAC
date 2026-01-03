@@ -16,6 +16,13 @@ from .constants import (
     EVENT_SESSION_STOP,
 )
 
+# Debug trace function
+def get_loop_id():
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        return "no_loop" 
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +41,7 @@ class RadioScheduler:
         self._tasks: Dict[str, Dict[str, asyncio.Task]] = {}  # session_id -> {event_name: task}
         self._bot_client: Optional[Client] = None
         self._on_session_expire: Optional[Callable[[str], Awaitable[None]]] = None
+        logger.debug(f"RadioScheduler initialized in loop {get_loop_id()}")
     
     @classmethod
     def get_instance(cls) -> "RadioScheduler":
@@ -85,6 +93,8 @@ class RadioScheduler:
             await self._on_expire(session_id, user_id)
         except asyncio.CancelledError:
             logger.debug(f"Expiration task cancelled for session {session_id}")
+        except Exception as e:
+            logger.error(f"Error in expiration task for {session_id}: {e}", exc_info=True)
     
     async def _on_expire(self, session_id: str, user_id: int):
         """Called when session expires."""
@@ -132,6 +142,8 @@ class RadioScheduler:
             )
         except asyncio.CancelledError:
             logger.debug(f"Warning task cancelled for session {session_id}")
+        except Exception as e:
+            logger.error(f"Error in warning task for {session_id}: {e}", exc_info=True)
     
     async def notify_last_track(self, session_id: str, user_id: int, track_name: str):
         """Send notification when the last track starts playing."""

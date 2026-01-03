@@ -16,6 +16,12 @@ from .constants import (
     CHUNK_SIZE,
 )
 
+def get_loop_id():
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        return "no_loop"
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,11 +35,13 @@ class RingBuffer:
         self._buffer: deque = deque(maxlen=max_size // CHUNK_SIZE)
         self._lock: Optional[asyncio.Lock] = None
         self._new_data: Optional[asyncio.Event] = None
+        logger.debug(f"RingBuffer initialized in loop {get_loop_id()}")
     
     @property
     def lock(self) -> asyncio.Lock:
         if self._lock is None:
             self._lock = asyncio.Lock()
+            logger.debug(f"RingBuffer.lock created in loop {get_loop_id()}")
         return self._lock
     
     @property
@@ -94,11 +102,13 @@ class StreamingServer:
         self._site: Optional[web.TCPSite] = None
         self._is_running = False
         self._lock: Optional[asyncio.Lock] = None
+        logger.debug(f"StreamingServer({port}) initialized in loop {get_loop_id()}")
     
     @property
     def lock(self) -> asyncio.Lock:
         if self._lock is None:
             self._lock = asyncio.Lock()
+            logger.debug(f"StreamingServer.lock created in loop {get_loop_id()}")
         return self._lock
     
     async def start(self) -> str:

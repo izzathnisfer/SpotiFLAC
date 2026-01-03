@@ -30,6 +30,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Debug trace function
+def get_loop_id():
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        return "no_loop" 
+
 # Reduce noise from libraries
 logging.getLogger("pyrogram").setLevel(logging.INFO)
 logging.getLogger("aiohttp").setLevel(logging.WARNING)
@@ -46,8 +53,13 @@ class SpotiFLACBot(Client):
         )
 
     async def start(self):
-        logger.info("Starting SpotiFLAC Bot...")
-        await super().start()
+        logger.info(f"Starting SpotiFLAC Bot on loop {get_loop_id()}...")
+        try:
+            await super().start()
+            logger.info("Pyrogram Client started.")
+        except Exception as e:
+            logger.critical(f"Pyrogram start failed: {e}", exc_info=True)
+            raise e
         
         # Initialize database
         logger.info("Initializing database...")
@@ -63,10 +75,13 @@ class SpotiFLACBot(Client):
         
         # Initialize Radio Engine (starts streaming loop if active sessions exist)
         if config.RADIO_ENABLED:
-            logger.info("Initializing Radio Engine...")
+            logger.info(f"Initializing Radio Engine on loop {get_loop_id()}...")
             # We don't need to explicitly start it here, just accessing it initializes the singleton
-            # But we might want to recover active sessions in the future
-            pass
+            try:
+                engine = get_radio_engine()
+                logger.info(f"Radio Engine initialized: {engine}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Radio Engine: {e}", exc_info=True)
             
         me = await self.get_me()
         logger.info(f"Bot started as @{me.username} ({me.id})")

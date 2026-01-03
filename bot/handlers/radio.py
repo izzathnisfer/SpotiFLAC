@@ -194,25 +194,29 @@ async def handle_radio(client: Client, message: Message):
     Handle /radio command.
     Shows main control menu if session exists.
     """
-    user_id = message.from_user.id
-    session_manager = get_session_manager()
-    
-    session = await session_manager.get_user_session(user_id)
-    
-    if not session:
-        await message.reply(
-            "📻 **No Active Radio Session**\n\n"
-            "Start a new session with /radio_start\n\n"
-            "Your session will get a unique streaming URL that anyone can listen to!",
-            quote=True
-        )
-        return
-    
-    # Show control panel
-    status_text = await build_status_message(session)
-    keyboard = build_main_menu_keyboard(session)
-    
-    await message.reply(status_text, reply_markup=keyboard, quote=True)
+    try:
+        user_id = message.from_user.id
+        session_manager = get_session_manager()
+        
+        session = await session_manager.get_user_session(user_id)
+        
+        if not session:
+            await message.reply(
+                "📻 **No Active Radio Session**\n\n"
+                "Start a new session with /radio_start\n\n"
+                "Your session will get a unique streaming URL that anyone can listen to!",
+                quote=True
+            )
+            return
+        
+        # Show control panel
+        status_text = await build_status_message(session)
+        keyboard = build_main_menu_keyboard(session)
+        
+        await message.reply(status_text, reply_markup=keyboard, quote=True)
+    except Exception as e:
+        logger.error(f"Error in handle_radio: {e}", exc_info=True)
+        await message.reply("❌ An error occurred while fetching radio dashboard.")
 
 
 async def handle_radio_start(client: Client, message: Message):
@@ -220,42 +224,46 @@ async def handle_radio_start(client: Client, message: Message):
     Handle /radio_start command.
     Creates a new radio session.
     """
-    user_id = message.from_user.id
-    session_manager = get_session_manager()
-    scheduler = get_scheduler()
-    
-    # Check for existing session
-    existing = await session_manager.get_user_session(user_id)
-    if existing:
-        await message.reply(
-            "⚠️ **You Already Have an Active Session**\n\n"
-            f"Stream URL: `{existing.stream_url}`\n\n"
-            "Use /radio to control it or /radio_end to stop it first.",
-            quote=True
-        )
-        return
-    
-    # Create new session
-    status_msg = await message.reply("🔄 Starting radio session...", quote=True)
-    
-    session = await session_manager.create_session(user_id)
-    
-    if not session:
-        await status_msg.edit_text("❌ Failed to start session. Please try again.")
-        return
-    
-    # Schedule expiration and warning
-    scheduler.set_bot_client(client)
-    await scheduler.schedule_expiration(session.id, user_id, session.expires_at)
-    
-    # Notify user
-    await scheduler.notify_session_started(session.id, user_id, session.stream_url)
-    
-    # Show control panel
-    status_text = await build_status_message(session)
-    keyboard = build_main_menu_keyboard(session)
-    
-    await status_msg.edit_text(status_text, reply_markup=keyboard)
+    try:
+        user_id = message.from_user.id
+        session_manager = get_session_manager()
+        scheduler = get_scheduler()
+        
+        # Check for existing session
+        existing = await session_manager.get_user_session(user_id)
+        if existing:
+            await message.reply(
+                "⚠️ **You Already Have an Active Session**\n\n"
+                f"Stream URL: `{existing.stream_url}`\n\n"
+                "Use /radio to control it or /radio_end to stop it first.",
+                quote=True
+            )
+            return
+        
+        # Create new session
+        status_msg = await message.reply("🔄 Starting radio session...", quote=True)
+        
+        session = await session_manager.create_session(user_id)
+        
+        if not session:
+            await status_msg.edit_text("❌ Failed to start session. Please try again.")
+            return
+        
+        # Schedule expiration and warning
+        scheduler.set_bot_client(client)
+        await scheduler.schedule_expiration(session.id, user_id, session.expires_at)
+        
+        # Notify user
+        await scheduler.notify_session_started(session.id, user_id, session.stream_url)
+        
+        # Show control panel
+        status_text = await build_status_message(session)
+        keyboard = build_main_menu_keyboard(session)
+        
+        await status_msg.edit_text(status_text, reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"Error in handle_radio_start: {e}", exc_info=True)
+        await message.reply("❌ Failed to start radio session due to an internal error.")
 
 
 async def handle_radio_end(client: Client, message: Message):
@@ -263,43 +271,47 @@ async def handle_radio_end(client: Client, message: Message):
     Handle /radio_end command.
     Stops the current radio session.
     """
-    user_id = message.from_user.id
-    session_manager = get_session_manager()
-    scheduler = get_scheduler()
-    
-    session = await session_manager.get_user_session(user_id)
-    
-    if not session:
+    try:
+        user_id = message.from_user.id
+        session_manager = get_session_manager()
+        scheduler = get_scheduler()
+        
+        session = await session_manager.get_user_session(user_id)
+        
+        if not session:
+            await message.reply(
+                "📻 No active radio session to stop.\n"
+                "Start one with /radio_start",
+                quote=True
+            )
+            return
+        
+        # Stop session
+        await scheduler.cancel_all(session.id)
+        
+        # Stop streaming server
+        streaming_pool = get_streaming_pool()
+        await streaming_pool.stop_server(session.id)
+        
+        # Stop transcoder
+        transcoder_pool = get_transcoder_pool()
+        await transcoder_pool.stop_transcoder(session.id)
+        
+        # Clean up queue
+        queue_manager = get_queue_manager()
+        await queue_manager.cleanup_session(session.id)
+        
+        # Stop session
+        await session_manager.stop_session(session.id, "user_request")
+        
         await message.reply(
-            "📻 No active radio session to stop.\n"
-            "Start one with /radio_start",
+            "⏹️ **Radio Session Ended**\n\n"
+            "Thanks for streaming! Start a new session anytime with /radio_start",
             quote=True
         )
-        return
-    
-    # Stop session
-    await scheduler.cancel_all(session.id)
-    
-    # Stop streaming server
-    streaming_pool = get_streaming_pool()
-    await streaming_pool.stop_server(session.id)
-    
-    # Stop transcoder
-    transcoder_pool = get_transcoder_pool()
-    await transcoder_pool.stop_transcoder(session.id)
-    
-    # Clean up queue
-    queue_manager = get_queue_manager()
-    await queue_manager.cleanup_session(session.id)
-    
-    # Stop session
-    await session_manager.stop_session(session.id, "user_request")
-    
-    await message.reply(
-        "⏹️ **Radio Session Ended**\n\n"
-        "Thanks for streaming! Start a new session anytime with /radio_start",
-        quote=True
-    )
+    except Exception as e:
+        logger.error(f"Error in handle_radio_end: {e}", exc_info=True)
+        await message.reply("❌ Error stopping session.")
 
 
 # =============================================================================
@@ -308,55 +320,59 @@ async def handle_radio_end(client: Client, message: Message):
 
 async def handle_callback(client: Client, callback: CallbackQuery):
     """Route callback to appropriate handler."""
-    data = callback.data
-    user_id = callback.from_user.id
-    
-    session_manager = get_session_manager()
-    session = await session_manager.get_user_session(user_id)
-    
-    if not session:
-        await callback.answer("No active session", show_alert=True)
-        return
-    
-    # Route to handlers
-    if data == CB_PLAY:
-        await _handle_play(client, callback, session)
-    elif data == CB_PAUSE:
-        await _handle_pause(client, callback, session)
-    elif data == CB_SKIP:
-        await _handle_skip(client, callback, session)
-    elif data == CB_SHUFFLE:
-        await _handle_shuffle(client, callback, session)
-    elif data == CB_REPEAT:
-        await _handle_repeat(client, callback, session)
-    elif data == CB_QUEUE:
-        await _handle_queue(client, callback, session)
-    elif data == CB_ADD:
-        await _handle_add(client, callback, session)
-    elif data == CB_SHARE:
-        await _handle_share(client, callback, session)
-    elif data == CB_STOP:
-        await _handle_stop_confirm(client, callback, session)
-    elif data == CB_CONFIRM_STOP:
-        await _handle_stop(client, callback, session)
-    elif data == CB_CANCEL_STOP:
-        await _handle_cancel_stop(client, callback, session)
-    elif data == CB_BACK:
-        await _handle_back(client, callback, session)
-    elif data.startswith(CB_QUEUE_PAGE):
-        page = int(data.replace(CB_QUEUE_PAGE, ""))
-        await _handle_queue_page(client, callback, session, page)
-    elif data.startswith(CB_QUEUE_REMOVE):
-        pos = int(data.replace(CB_QUEUE_REMOVE, ""))
-        await _handle_queue_remove(client, callback, session, pos)
-    elif data.startswith(CB_QUEUE_UP):
-        pos = int(data.replace(CB_QUEUE_UP, ""))
-        await _handle_queue_move(client, callback, session, pos, pos - 1)
-    elif data.startswith(CB_QUEUE_DOWN):
-        pos = int(data.replace(CB_QUEUE_DOWN, ""))
-        await _handle_queue_move(client, callback, session, pos, pos + 1)
-    else:
-        await callback.answer()
+    try:
+        data = callback.data
+        user_id = callback.from_user.id
+        
+        session_manager = get_session_manager()
+        session = await session_manager.get_user_session(user_id)
+        
+        if not session:
+            await callback.answer("No active session", show_alert=True)
+            return
+        
+        # Route to handlers
+        if data == CB_PLAY:
+            await _handle_play(client, callback, session)
+        elif data == CB_PAUSE:
+            await _handle_pause(client, callback, session)
+        elif data == CB_SKIP:
+            await _handle_skip(client, callback, session)
+        elif data == CB_SHUFFLE:
+            await _handle_shuffle(client, callback, session)
+        elif data == CB_REPEAT:
+            await _handle_repeat(client, callback, session)
+        elif data == CB_QUEUE:
+            await _handle_queue(client, callback, session)
+        elif data == CB_ADD:
+            await _handle_add(client, callback, session)
+        elif data == CB_SHARE:
+            await _handle_share(client, callback, session)
+        elif data == CB_STOP:
+            await _handle_stop_confirm(client, callback, session)
+        elif data == CB_CONFIRM_STOP:
+            await _handle_stop(client, callback, session)
+        elif data == CB_CANCEL_STOP:
+            await _handle_cancel_stop(client, callback, session)
+        elif data == CB_BACK:
+            await _handle_back(client, callback, session)
+        elif data.startswith(CB_QUEUE_PAGE):
+            page = int(data.replace(CB_QUEUE_PAGE, ""))
+            await _handle_queue_page(client, callback, session, page)
+        elif data.startswith(CB_QUEUE_REMOVE):
+            pos = int(data.replace(CB_QUEUE_REMOVE, ""))
+            await _handle_queue_remove(client, callback, session, pos)
+        elif data.startswith(CB_QUEUE_UP):
+            pos = int(data.replace(CB_QUEUE_UP, ""))
+            await _handle_queue_move(client, callback, session, pos, pos - 1)
+        elif data.startswith(CB_QUEUE_DOWN):
+            pos = int(data.replace(CB_QUEUE_DOWN, ""))
+            await _handle_queue_move(client, callback, session, pos, pos + 1)
+        else:
+            await callback.answer()
+    except Exception as e:
+        logger.error(f"Error in handle_callback: {e}", exc_info=True)
+        await callback.answer("An error occurred", show_alert=True)
 
 
 async def _handle_play(client: Client, callback: CallbackQuery, session: RadioSession):
@@ -596,42 +612,46 @@ async def handle_add_song_reply(client: Client, message: Message):
     Handle reply to add song prompt.
     Searches for the song and adds to queue.
     """
-    user_id = message.from_user.id
-    session_manager = get_session_manager()
-    queue_manager = get_queue_manager()
-    
-    session = await session_manager.get_user_session(user_id)
-    if not session:
-        await message.reply("No active session. Start one with /radio_start")
-        return
-    
-    query = message.text.strip()
-    if not query:
-        await message.reply("Please provide a song name or URL.")
-        return
-    
-    status_msg = await message.reply("🔍 Searching...", quote=True)
-    
-    # TODO: Implement actual search via backend API
-    # For now, just add a placeholder
-    item = await queue_manager.add_track(
-        session_id=session.id,
-        track_isrc="placeholder",
-        track_name=query[:50],
-        artist_name="Unknown Artist",
-        duration=180,  # 3 minutes placeholder
-    )
-    
-    if item:
-        queue_length = await queue_manager.get_queue_length(session.id)
-        await status_msg.edit_text(
-            f"✅ **Added to Queue**\n\n"
-            f"🎵 {item.display_name()}\n"
-            f"📋 Position: #{queue_length}\n\n"
-            f"Use /radio to view controls."
+    try:
+        user_id = message.from_user.id
+        session_manager = get_session_manager()
+        queue_manager = get_queue_manager()
+        
+        session = await session_manager.get_user_session(user_id)
+        if not session:
+            await message.reply("No active session. Start one with /radio_start")
+            return
+        
+        query = message.text.strip()
+        if not query:
+            await message.reply("Please provide a song name or URL.")
+            return
+        
+        status_msg = await message.reply("🔍 Searching...", quote=True)
+        
+        # TODO: Implement actual search via backend API
+        # For now, just add a placeholder
+        item = await queue_manager.add_track(
+            session_id=session.id,
+            track_isrc="placeholder",
+            track_name=query[:50],
+            artist_name="Unknown Artist",
+            duration=180,  # 3 minutes placeholder
         )
-    else:
-        await status_msg.edit_text(
-            "❌ **Could not add track**\n\n"
-            "Adding this track would exceed the 6-hour session limit."
-        )
+        
+        if item:
+            queue_length = await queue_manager.get_queue_length(session.id)
+            await status_msg.edit_text(
+                f"✅ **Added to Queue**\n\n"
+                f"🎵 {item.display_name()}\n"
+                f"📋 Position: #{queue_length}\n\n"
+                f"Use /radio to view controls."
+            )
+        else:
+            await status_msg.edit_text(
+                "❌ **Could not add track**\n\n"
+                "Adding this track would exceed the 6-hour session limit."
+            )
+    except Exception as e:
+        logger.error(f"Error in handle_add_song_reply: {e}", exc_info=True)
+        await message.reply("❌ Error adding song.")

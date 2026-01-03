@@ -16,9 +16,15 @@ from .constants import (
     QUEUE_STATUS_PLAYED,
     QUEUE_STATUS_SKIPPED,
     QUEUE_STATUS_FAILED,
-    EVENT_TRACK_ADD,
     EVENT_TRACK_REMOVE,
 )
+
+import asyncio
+def get_loop_id():
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        return "no_loop"
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +100,7 @@ class QueueManager:
         # session_id -> list of QueueItems
         self._queues: Dict[str, List[QueueItem]] = {}
         self._next_id = 1  # Simple counter for queue item IDs
+        logger.debug(f"QueueManager initialized in loop {get_loop_id()}")
     
     @classmethod
     def get_instance(cls) -> "QueueManager":
