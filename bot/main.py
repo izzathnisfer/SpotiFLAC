@@ -60,6 +60,12 @@ async def log_messages(client: Client, message: Message):
     text = message.text or "NoText"
     logger.info(f"DEBUG: Received message: {text}")
 
+from pyrogram.handlers import RawUpdateHandler
+async def handle_raw_update(client, update, users, chats):
+    logger.info(f"DEBUG RAW UPDATE: {type(update).__name__}")
+
+app.add_handler(RawUpdateHandler(handle_raw_update), group=-2)
+
 
 # =============================================================================
 # Access Control Middleware
