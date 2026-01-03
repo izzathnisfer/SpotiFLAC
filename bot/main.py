@@ -51,6 +51,20 @@ app = create_app()
 
 
 # =============================================================================
+# Debug Middleware
+# =============================================================================
+
+@app.on_message(group=-1)
+async def log_messages(client: Client, message: Message):
+    """Log every incoming message for debugging."""
+    user = message.from_user
+    username = f"@{user.username}" if user and user.username else "NoUsername"
+    user_id = user.id if user else "NoID"
+    text = message.text or "NoText"
+    logger.info(f"DEBUG: Received message from {username} ({user_id}): {text}")
+
+
+# =============================================================================
 # Access Control Middleware
 # =============================================================================
 
