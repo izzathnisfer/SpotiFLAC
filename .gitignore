@@ -62,3 +62,7 @@ test
 # Build notes (optional - uncomment if you don't want to commit)
 # BUILD_NOTES.md
 push.bat
+
+# Custom
+example-testing.pem
+windows-seek-n-control/
