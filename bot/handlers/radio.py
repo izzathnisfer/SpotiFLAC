@@ -4,6 +4,7 @@ Handles /radio commands and inline menu interactions.
 """
 
 import logging
+from services import backend
 from typing import Optional
 
 from pyrogram import Client, filters
@@ -628,31 +629,100 @@ async def handle_add_song_reply(client: Client, message: Message):
             await message.reply("Please provide a song name or URL.")
             return
         
-        status_msg = await message.reply("🔍 Searching...", quote=True)
+        status_msg = await message.reply(f"🔎 Searching for '{query}'...", quote=True)
         
-        # TODO: Implement actual search via backend API
-        # For now, just add a placeholder
-        item = await queue_manager.add_track(
-            session_id=session.id,
-            track_isrc="placeholder",
-            track_name=query[:50],
-            artist_name="Unknown Artist",
-            duration=180,  # 3 minutes placeholder
-        )
-        
-        if item:
-            queue_length = await queue_manager.get_queue_length(session.id)
-            await status_msg.edit_text(
-                f"✅ **Added to Queue**\n\n"
-                f"🎵 {item.display_name()}\n"
-                f"📋 Position: #{queue_length}\n\n"
-                f"Use /radio to view controls."
+        # Real search via backend
+        api = backend.get_client()
+        try:
+            # Check if it's a URL or query
+            if "spotify.com" in query:
+               # Get metadata directly
+               meta = await api.get_metadata(query)
+               if meta and "track" in meta:
+                   track_data = meta["track"]
+                   # Construct result manually
+                   result = {
+                       "name": track_data.get("name"),
+                       "artists": track_data.get("artists"),
+                       "isrc": track_data.get("isrc"),
+                       "duration_ms": track_data.get("duration_ms"),
+                       "image": track_data.get("image")
+                   }
+               else:
+                   await status_msg.edit_text("❌ Invalid Spotify URL or failed to fetch metadata")
+                   return
+            else:
+                # Search
+                search_res = await api.search(query, limit=1)
+                if not search_res or not search_res.get("tracks"):
+                    await status_msg.edit_text(f"❌ No tracks found for '{query}'")
+                    return
+                # Get first result
+                track_data = search_res["tracks"][0]
+                result = {
+                     "name": track_data.get("name"),
+                     "artists": track_data.get("artists"),
+                     "isrc": track_data.get("id"), # Search result ID is usually Spotify ID, but we might need ISRC.
+                     # Backend search returns 'id' which is Spotify ID.
+                     # To get ISRC we usually need get_metadata.
+                     # However, for queueing, let's see if we can use ID.
+                     # The backend downloader usually needs ISRC or valid URL.
+                     # If we use spotify ID as ISRC logic might fail if strictly validated.
+                     # BUT, let's fetch metadata to be safe if it's just ID.
+                     "image": track_data.get("image")
+                }
+                
+                # Fetch full metadata to ensure we have ISRC
+                # Search result returns 'id' (spotify ID)
+                if result["isrc"] and len(str(result["isrc"])) < 20: # Likely a Spotify ID (22 chars) vs ISRC (12 chars)
+                     # Actually, Spotify ID is 22 chars. ISRC is 12 chars.
+                     # Let's just fetch metadata for the ID to be safe and get duration
+                     meta = await api.get_metadata(f"https://open.spotify.com/track/{result['isrc']}")
+                     if meta and "track" in meta:
+                         result["isrc"] = meta["track"].get("isrc")
+                         result["duration_ms"] = meta["track"].get("duration_ms")
+                         result["name"] = meta["track"].get("name")
+                         result["artists"] = meta["track"].get("artists")
+                     else:
+                         # Fallback to defaults?
+                         result["duration_ms"] = 180000
+
+            # Add to Queue
+            duration_sec = int(result.get("duration_ms", 180000) / 1000)
+            
+            # Ensure we have a valid ISRC or at least something unique
+            track_isrc = result.get("isrc")
+            if not track_isrc or track_isrc == "placeholder":
+                 await status_msg.edit_text("❌ Could not resolve track ISRC.")
+                 return
+
+            item = await queue_manager.add_track(
+                session_id=session.id,
+                track_isrc=track_isrc,
+                track_name=result.get("name", query),
+                artist_name=result.get("artists", "Unknown"),
+                duration=duration_sec,
             )
-        else:
-            await status_msg.edit_text(
-                "❌ **Could not add track**\n\n"
-                "Adding this track would exceed the 6-hour session limit."
-            )
+            
+            if item:
+                queue_length = await queue_manager.get_queue_length(session.id)
+                await status_msg.edit_text(
+                    f"✅ **Added to Queue**\n\n"
+                    f"🎵 {item.display_name()}\n"
+                    f"⏱ {format_duration(duration_sec)}\n"
+                    f"📋 Position: #{queue_length}\n\n"
+                    f"Use /radio to view controls."
+                )
+            else:
+                await status_msg.edit_text(
+                    "❌ **Could not add track**\n\n"
+                    "Adding this track would exceed the 6-hour session limit."
+                )
+                
+        except Exception as e:
+            logger.error(f"Backend search failed: {e}", exc_info=True)
+            await status_msg.edit_text(f"❌ Error searching: {e}")
+            
     except Exception as e:
         logger.error(f"Error in handle_add_song_reply: {e}", exc_info=True)
         await message.reply("❌ Error adding song.")

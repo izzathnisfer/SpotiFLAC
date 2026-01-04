@@ -32,7 +32,7 @@ class RingBuffer:
     """
     
     def __init__(self, max_size: int = BUFFER_SIZE):
-        self._buffer: deque = deque(maxlen=max_size // CHUNK_SIZE)
+        self._buffer: deque = deque(maxlen=max(1, max_size // CHUNK_SIZE))
         self._lock: Optional[asyncio.Lock] = None
         self._new_data: Optional[asyncio.Event] = None
         logger.debug(f"RingBuffer initialized in loop {get_loop_id()}")

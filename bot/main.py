@@ -17,6 +17,7 @@ from pyrogram.enums import ParseMode
 import config
 from handlers import start, radio
 from services.database import init_database
+from services import backend
 from radio.engine import get_radio_engine
 
 # Configure logging
@@ -40,6 +41,33 @@ def get_loop_id():
 # Reduce noise from libraries
 logging.getLogger("pyrogram").setLevel(logging.INFO)
 logging.getLogger("aiohttp").setLevel(logging.WARNING)
+
+async def _radio_download_callback(isrc: str, name: str) -> str | None:
+    """Callback for RadioEngine to download tracks."""
+    try:
+        logger.info(f"Radio requested download: {name} ({isrc})")
+        api = backend.get_client()
+        if not api:
+            logger.error("Backend client not initialized")
+            return None
+            
+        result = await api.download_track(
+            isrc=isrc,
+            track_name=name,
+            # We skip optional metadata as the backend mainly needs ISRC
+            # But providing more info helps with filename formatting
+            artist_name="", 
+            album_name="",
+        )
+        
+        if result and result.get("success") and result.get("file"):
+            return result["file"]
+        else:
+            logger.error(f"Download failed: {result.get('error')}")
+            return None
+    except Exception as e:
+        logger.error(f"Radio download error: {e}")
+        return None
 
 class SpotiFLACBot(Client):
     def __init__(self):
@@ -84,6 +112,7 @@ class SpotiFLACBot(Client):
             # We don't need to explicitly start it here, just accessing it initializes the singleton
             try:
                 engine = get_radio_engine()
+                engine.set_download_callback(_radio_download_callback)
                 logger.info(f"Radio Engine initialized: {engine}")
             except Exception as e:
                 logger.error(f"Failed to initialize Radio Engine: {e}", exc_info=True)
