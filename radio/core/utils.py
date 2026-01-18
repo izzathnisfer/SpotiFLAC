@@ -24,8 +24,8 @@ def clean_search_query(artist: str, title: str) -> str:
     # Remove "ft.", "feat"
     safe_title = re.sub(r'(?i)\b(ft\.|feat\.|feat|featuring)\b.*', '', safe_title)
     
-    # Remove "Official Video", "Lyric Video"
-    safe_title = re.sub(r'(?i)\b(official|lyric|video|audio)\b', '', safe_title)
+    # Remove "Official Video", "Lyric Video", "Movie Version", "Unplugged", etc
+    safe_title = re.sub(r'(?i)\b(official|lyric|video|audio|movie version|unplugged|original motion picture soundtrack|soundtrack|ost)\b.*', '', safe_title)
     
     safe_title = safe_title.strip()
     safe_artist = artist.split(',')[0].strip() # Take primary artist

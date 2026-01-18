@@ -353,7 +353,7 @@ async def handle_search_callback(client: Client, callback: CallbackQuery):
             from core.utils import clean_search_query
             search_query = clean_search_query(artist_name, track_name)
             
-            # Use SpotubeDL (Server-side API conversion) - Robust & Fast
+            # Use SpotubeDL ONLY (as per user request)
             from core.spotubedl_downloader import download_track
             downloaded_path = await download_track(
                 query=search_query,
@@ -370,14 +370,16 @@ async def handle_search_callback(client: Client, callback: CallbackQuery):
                     added_by=player.owner_id
                 )
                 await player.add_track(track)
-                source_icon = "🎵" if source == "spotify" else "📺"
+                # Always allow "Spotify" icon since source is irrelevant to user now, or use generic
                 await callback.message.edit_text(
-                    f"✅ Added!\n\n{source_icon} **{track.title}**\n🎤 {track.artist}",
+                    f"✅ Added!\n\n🎵 **{track.title}**\n🎤 {track.artist}",
                     reply_markup=radio_controls_keyboard()
                 )
                 exit_add_mode(user_id)
             else:
-                await callback.message.edit_text(f"❌ Download failed for: {track_name}")
+                await callback.message.edit_text(
+                    f"❌ Download failed for: {track_name}\n\nSearch used: `{search_query}`"
+                )
                 
         except Exception as e:
             logger.error(f"Search callback error: {e}")
