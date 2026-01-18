@@ -346,38 +346,37 @@ async def handle_search_callback(client: Client, callback: CallbackQuery):
             await callback.answer("⏳ Downloading...")
             await callback.message.edit_text("⏳ Downloading track...")
             
-            if source == "youtube":
-                # Direct YouTube download
-                from core.ytdlp_downloader import download_by_url
-                youtube_url = track_data.get("youtube_url", "")
-                if youtube_url:
-                    downloaded_path = await download_by_url(
-                        url=youtube_url,
-                        output_dir=config.AUDIO_DIR,
-                        audio_format="mp3",
-                        audio_quality=str(config.AUDIO_BITRATE)
-                    )
-                    if downloaded_path:
-                        from core.queue_manager import Track
-                        track = Track(
-                            id=str(uuid.uuid4())[:8],
-                            file_path=downloaded_path,
-                            title=track_data.get("name", "Unknown"),
-                            artist=track_data.get("artists", "YouTube"),
-                            added_by=player.owner_id
-                        )
-                        await player.add_track(track)
-                        await callback.message.edit_text(
-                            f"✅ Added!\n\n🎵 **{track.title}**\n📺 {track.artist}",
-                            reply_markup=radio_controls_keyboard()
-                        )
-                        exit_add_mode(user_id)
-                        return
-                await callback.message.edit_text("❌ Download failed")
-            else:
-                # Spotify download (uses existing flow with yt-dlp fallback)
-                await add_track_to_queue(player, track_data, callback.message)
+            # For all sources, use search-based download (SoundCloud works from AWS)
+            track_name = track_data.get("name", "Unknown")
+            artist_name = track_data.get("artists", "Unknown")
+            search_query = f"{artist_name} - {track_name}"
+            
+            from core.ytdlp_downloader import download_from_youtube
+            downloaded_path = await download_from_youtube(
+                query=search_query,
+                output_dir=config.AUDIO_DIR,
+                audio_format="mp3",
+                audio_quality=str(config.AUDIO_BITRATE)
+            )
+            
+            if downloaded_path:
+                from core.queue_manager import Track
+                track = Track(
+                    id=str(uuid.uuid4())[:8],
+                    file_path=downloaded_path,
+                    title=track_name,
+                    artist=artist_name,
+                    added_by=player.owner_id
+                )
+                await player.add_track(track)
+                source_icon = "🎵" if source == "spotify" else "📺"
+                await callback.message.edit_text(
+                    f"✅ Added!\n\n{source_icon} **{track.title}**\n🎤 {track.artist}",
+                    reply_markup=radio_controls_keyboard()
+                )
                 exit_add_mode(user_id)
+            else:
+                await callback.message.edit_text(f"❌ Download failed for: {track_name}")
                 
         except Exception as e:
             logger.error(f"Search callback error: {e}")
