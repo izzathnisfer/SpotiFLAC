@@ -353,12 +353,11 @@ async def handle_search_callback(client: Client, callback: CallbackQuery):
             from core.utils import clean_search_query
             search_query = clean_search_query(artist_name, track_name)
             
-            from core.ytdlp_downloader import download_from_youtube
-            downloaded_path = await download_from_youtube(
+            # Use SpotubeDL (Server-side API conversion) - Robust & Fast
+            from core.spotubedl_downloader import download_track
+            downloaded_path = await download_track(
                 query=search_query,
-                output_dir=config.AUDIO_DIR,
-                audio_format="mp3",
-                audio_quality=str(config.AUDIO_BITRATE)
+                output_dir=config.AUDIO_DIR
             )
             
             if downloaded_path:
