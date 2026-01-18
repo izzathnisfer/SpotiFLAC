@@ -157,50 +157,67 @@ async def add_track_to_queue(player, track_data: dict, msg: Message = None):
 
 async def download_track(track_data: dict) -> Path | None:
     """
-    Download a track using SpotiFLAC API.
+    Download a track. Tries SpotiFLAC API first, then falls back to yt-dlp.
     Returns the path to the downloaded file.
     """
+    track_name = track_data.get("name", "Unknown")
+    artist_name = track_data.get("artists", "Unknown")
+    
+    # Try SpotiFLAC first (if we have ISRC)
+    isrc = track_data.get("isrc", "")
+    if isrc:
+        logger.info(f"Trying SpotiFLAC for: {artist_name} - {track_name}")
+        try:
+            download_request = {
+                "isrc": isrc,
+                "source": "auto",
+                "track_name": track_name,
+                "artist_name": artist_name,
+                "album_name": track_data.get("album", ""),
+                "quality": "LOSSLESS",
+                "output_dir": str(config.AUDIO_DIR),
+            }
+            
+            async with httpx.AsyncClient(timeout=120) as http:
+                response = await http.post(
+                    f"{config.SPOTIFLAC_API_URL}/download",
+                    json=download_request
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get("success"):
+                        file_path = result.get("file")
+                        if file_path and Path(file_path).exists():
+                            logger.info(f"SpotiFLAC download success: {file_path}")
+                            return Path(file_path)
+                
+                logger.warning(f"SpotiFLAC failed, trying yt-dlp fallback")
+                
+        except Exception as e:
+            logger.warning(f"SpotiFLAC error: {e}, trying yt-dlp fallback")
+    
+    # Fallback to yt-dlp (YouTube Music)
+    logger.info(f"Using yt-dlp for: {artist_name} - {track_name}")
     try:
-        isrc = track_data.get("isrc", "")
-        if not isrc:
-            logger.warning(f"No ISRC for track: {track_data.get('name')}")
-            return None
+        from core.ytdlp_downloader import download_from_youtube
         
-        # Prepare download request
-        download_request = {
-            "isrc": isrc,
-            "service": "tidal",  # Default to Tidal
-            "track_name": track_data.get("name", ""),
-            "artist_name": track_data.get("artists", ""),
-            "album_name": track_data.get("album", ""),
-            "quality": "flac",
-            "output_dir": str(config.AUDIO_DIR),
-            "embed_lyrics": False,
-            "embed_max_quality_cover": False
-        }
+        search_query = f"{artist_name} - {track_name}"
+        downloaded_path = await download_from_youtube(
+            query=search_query,
+            output_dir=config.AUDIO_DIR,
+            audio_format="mp3",
+            audio_quality=str(config.AUDIO_BITRATE)
+        )
         
-        async with httpx.AsyncClient(timeout=180) as http:
-            response = await http.post(
-                f"{config.SPOTIFLAC_API_URL}/download",
-                json=download_request
-            )
+        if downloaded_path:
+            logger.info(f"yt-dlp download success: {downloaded_path}")
+            return downloaded_path
             
-            if response.status_code != 200:
-                logger.error(f"Download API error: {response.status_code}")
-                return None
-            
-            result = response.json()
-            
-            if result.get("success"):
-                file_path = result.get("file")
-                if file_path:
-                    return Path(file_path)
-        
-        return None
-        
     except Exception as e:
-        logger.error(f"Download error: {e}")
-        return None
+        logger.error(f"yt-dlp error: {e}")
+    
+    return None
 
 
 async def handle_search_query(client: Client, message: Message):

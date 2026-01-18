@@ -58,7 +58,7 @@ func NewSpotifyMetadataClient() *SpotifyMetadataClient {
 	}
 
 	c := &SpotifyMetadataClient{
-		httpClient:   &http.Client{Timeout: 15 * time.Second},
+		httpClient:   &http.Client{Timeout: 60 * time.Second},
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		rng:          rand.New(src),
