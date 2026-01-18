@@ -85,6 +85,62 @@ class StreamPlayer:
             # No tracks, play fallback
             return await self._play_fallback()
 
+    async def add_track(self, track: Track):
+        """Add a track to the queue and start playing if needed."""
+        item = self._queue.add_track(track)
+        
+        logger.info(f"Player {self.session_id}: Added track '{track.title}'. State: {self.state}")
+        
+        # If we're waiting for tracks, start playing
+        if self.state == PlayerState.WAITING_FOR_TRACKS or self.state == PlayerState.STOPPED:
+            logger.info(f"Player {self.session_id}: Interrupting fallback/idle...")
+            async with self._lock:
+                await self._stop_process()
+                next_item = self._queue.advance()
+                if next_item:
+                    logger.info(f"Player {self.session_id}: Advancing to '{next_item.track.title}'")
+                    success = await self._start_ffmpeg(next_item.track.file_path, next_item.track.title)
+                    if not success:
+                        logger.error(f"Player {self.session_id}: Failed to start FFmpeg for '{next_item.track.title}'")
+                else:
+                    logger.warning(f"Player {self.session_id}: Advance failed (Queue empty?)")
+        else:
+             logger.info(f"Player {self.session_id}: Not interrupting. State is {self.state}")
+        
+        return item
+    
+    async def skip(self) -> bool:
+        """Skip current track and play next."""
+        async with self._lock:
+            await self._stop_process()
+            next_item = self._queue.skip()
+            
+            if next_item:
+                return await self._start_ffmpeg(next_item.track.file_path, next_item.track.title)
+            else:
+                # No more tracks
+                return await self._play_fallback()
+    
+    async def pause(self):
+        """Pause playback."""
+        self.state = PlayerState.PAUSED
+        logger.info(f"Player {self.session_id}: Paused")
+    
+    async def resume(self):
+        """Resume playback."""
+        if self.state == PlayerState.PAUSED:
+            self.state = PlayerState.PLAYING
+            logger.info(f"Player {self.session_id}: Resumed")
+    
+    async def stop(self):
+        """Stop the player completely."""
+        async with self._lock:
+            await self._stop_process()
+            self.state = PlayerState.STOPPED
+            self.current_file = None
+            self.current_track_title = ""
+        logger.info(f"Player {self.session_id}: Stopped")
+
     async def _broadcast_loop(self):
         """Reading master loop: reads from FFmpeg and fans out to clients."""
         logger.info(f"Player {self.session_id}: Broadcast loop started")
