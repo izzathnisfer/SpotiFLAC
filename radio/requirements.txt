@@ -6,3 +6,4 @@ sqlalchemy==2.0.25
 httpx==0.26.0
 pyrogram==2.0.106
 tgcrypto==1.2.5
+psutil==5.9.8
