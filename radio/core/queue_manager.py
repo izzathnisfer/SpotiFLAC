@@ -117,20 +117,24 @@ class SessionQueue:
         Move to the next track in the queue.
         Returns the new current track, or None if queue is empty.
         """
-        current = self.get_current()
-        if current and current.status == TrackStatus.PLAYING:
-            current.status = TrackStatus.PLAYED
-            current.finished_at = time.time()
+        next_idx = self._current_index + 1
         
-        self._current_index += 1
-        
-        if self._current_index < len(self._items):
+        if next_idx < len(self._items):
+            # Move to next track
+            if self.get_current():
+                current = self.get_current()
+                if current and current.status == TrackStatus.PLAYING:
+                    current.status = TrackStatus.PLAYED
+                    current.finished_at = time.time()
+
+            self._current_index = next_idx
             new_current = self._items[self._current_index]
             new_current.status = TrackStatus.PLAYING
             new_current.started_at = time.time()
             logger.info(f"Queue {self.session_id}: Now playing '{new_current.track.title}'")
             return new_current
         else:
+            # End of queue, do not increment index blindly
             logger.info(f"Queue {self.session_id}: No more tracks")
             return None
     
