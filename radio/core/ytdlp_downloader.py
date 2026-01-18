@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 # Thread pool for running yt-dlp synchronously
 _executor = ThreadPoolExecutor(max_workers=3)
 
+# YouTube cookies file path for bypassing bot detection
+COOKIES_FILE = config.BASE_DIR / "assets" / "www.youtube.com_cookies.txt"
+
+
+def _get_cookies_path() -> str | None:
+    """Get cookies file path if it exists."""
+    if COOKIES_FILE.exists():
+        return str(COOKIES_FILE)
+    return None
+
 
 def _get_ytdlp():
     """Import and return yt_dlp module."""
@@ -48,6 +58,11 @@ def _search_youtube_sync(query: str, max_results: int = 5) -> list[dict]:
         'extract_flat': True,
         'force_generic_extractor': False,
     }
+    
+    # Add cookies if available
+    cookies_path = _get_cookies_path()
+    if cookies_path:
+        ydl_opts['cookiefile'] = cookies_path
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -118,6 +133,11 @@ def _download_youtube_sync(query: str, output_dir: Path, audio_format: str, audi
         'no_warnings': True,
         'noplaylist': True,
     }
+    
+    # Add cookies if available
+    cookies_path = _get_cookies_path()
+    if cookies_path:
+        ydl_opts['cookiefile'] = cookies_path
     
     logger.info(f"Downloading from YouTube: {query}")
     
@@ -200,6 +220,11 @@ def _download_by_url_sync(url: str, output_dir: Path, audio_format: str, audio_q
         'no_warnings': True,
         'noplaylist': True,
     }
+    
+    # Add cookies if available
+    cookies_path = _get_cookies_path()
+    if cookies_path:
+        ydl_opts['cookiefile'] = cookies_path
     
     logger.info(f"Downloading from URL: {url}")
     
