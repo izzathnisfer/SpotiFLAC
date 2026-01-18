@@ -68,6 +68,23 @@ class StreamPlayer:
         # Fallback audio control
         self._playing_fallback: bool = False
 
+    async def start(self) -> bool:
+        """Start the player, playing from queue or fallback."""
+        async with self._lock:
+            # Try to play from queue first
+            current = self._queue.get_current()
+            if current and current.status == TrackStatus.PLAYING:
+                # Already have a current track
+                return await self._start_ffmpeg(current.track.file_path, current.track.title)
+            
+            # Try to advance to first track
+            next_item = self._queue.advance()
+            if next_item:
+                return await self._start_ffmpeg(next_item.track.file_path, next_item.track.title)
+            
+            # No tracks, play fallback
+            return await self._play_fallback()
+
     async def _broadcast_loop(self):
         """Reading master loop: reads from FFmpeg and fans out to clients."""
         logger.info(f"Player {self.session_id}: Broadcast loop started")
