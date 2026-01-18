@@ -260,7 +260,17 @@ class StreamPlayer:
         
         self.current_file = audio_file
         self.current_track_title = title or audio_file.stem
+        self.current_file = audio_file
+        self.current_track_title = title or audio_file.stem
         self._playing_fallback = False
+        
+        # Clear client queues to prevent mixing old audio (e.g. fallback) with new track
+        for client_queue in list(self._clients):
+            while not client_queue.empty():
+                try:
+                    client_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
         
         # FFmpeg command for streaming
         # Tuned for Low Latency: -tune zerolatency
