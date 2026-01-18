@@ -116,7 +116,13 @@ async def download_track(
             
         output_path = output_dir / filename
         if output_path.exists():
-            return str(output_path)
+            # Validate existing file
+            if output_path.stat().st_size > 102400: # > 100KB
+                logger.info(f"Using cached file: {output_path}")
+                return str(output_path)
+            else:
+                logger.warning(f"Cached file too small ({output_path.stat().st_size} bytes). Deleting.")
+                output_path.unlink()
             
         # 2. Get Link
         download_url = await get_download_link(spotify_id)
