@@ -172,7 +172,11 @@ class StreamPlayer:
                     continue
                 
                 if chunk:
-                    # logger.debug(f"Player {self.session_id}: Read {len(chunk)} bytes. Clients: {len(self._clients)}")
+                    # Log active stream details occasionally (every 5s)
+                    if time.time() - self.last_activity > 5:
+                         pid = self._process.pid if self._process else "None"
+                         logger.info(f"Player {self.session_id} [PID {pid}]: Broadcasting to {len(self._clients)} clients. Object: {id(self)}")
+                    
                     self.last_activity = time.time()
                     # Fan out to all connected clients
                     for client_queue in list(self._clients):
@@ -190,8 +194,10 @@ class StreamPlayer:
                     # Stream ended (track finished) or no data
                     # Check if process exists before polling to avoid race condition with _stop_process
                     process = self._process
+                    current_pid = process.pid if process else "None"
+                    
                     if process and process.poll() is not None:
-                        logger.info(f"Player {self.session_id}: Track finished (EOF), Return Code: {process.returncode}")
+                        logger.info(f"Player {self.session_id} [PID {current_pid}]: Track finished (EOF), Return Code: {process.returncode}")
                         
                         stderr_out = process.stderr.read() if process.stderr else b""
                         if stderr_out:
@@ -205,7 +211,8 @@ class StreamPlayer:
                             # CRITICAL: Verify the process hasn't changed while we waited for lock
                             # This prevents the loop from stopping a NEW process started by add_track
                             if self._process != process:
-                                logger.info(f"Player {self.session_id}: Process changed during lock wait. Ignoring EOF of old process.")
+                                new_pid = self._process.pid if self._process else "None"
+                                logger.info(f"Player {self.session_id}: Process changed {current_pid} -> {new_pid} during lock wait. Ignoring EOF.")
                                 continue
 
                             await self._stop_process()
