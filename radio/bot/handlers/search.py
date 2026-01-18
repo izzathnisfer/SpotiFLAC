@@ -221,7 +221,7 @@ async def download_track(track_data: dict) -> Path | None:
 
 
 async def handle_search_query(client: Client, message: Message):
-    """Handle search text when in add mode."""
+    """Handle search text when in add mode. Searches both Spotify and YouTube."""
     user_id = message.from_user.id
     
     if not is_in_add_mode(user_id):
@@ -242,43 +242,80 @@ async def handle_search_query(client: Client, message: Message):
         exit_add_mode(user_id)
         return
     
-    # Perform search
-    msg = await message.reply("🔍 Searching...", quote=True)
+    # Perform dual search (Spotify + YouTube)
+    msg = await message.reply("🔍 Searching Spotify & YouTube...", quote=True)
     
+    spotify_results = []
+    youtube_results = []
+    
+    # Search Spotify (with error handling)
     try:
-        async with httpx.AsyncClient(timeout=30) as http:
+        async with httpx.AsyncClient(timeout=15) as http:
             response = await http.get(
                 f"{config.SPOTIFLAC_API_URL}/search",
                 params={"query": query, "limit": 5}
             )
-            
-            if response.status_code != 200:
-                await msg.edit_text("❌ Search failed")
-                return
-            
-            data = response.json()
-            tracks = data.get("tracks", [])
-            
-            if not tracks:
-                await msg.edit_text("❌ No results found")
-                return
-            
-            # Cache results
-            _search_cache[user_id] = tracks
-            
-            text = f"🔍 **Search Results for:** `{query}`\n\n"
-            for i, track in enumerate(tracks[:5], 1):
-                text += f"{i}. **{track.get('name', 'Unknown')}**\n"
-                text += f"   🎤 {track.get('artists', 'Unknown')}\n\n"
-            
-            await msg.edit_text(
-                text,
-                reply_markup=search_results_keyboard(tracks, page=0, total_pages=1)
-            )
-            
+            if response.status_code == 200:
+                data = response.json()
+                if "error" not in data:
+                    spotify_results = data.get("tracks", [])[:5]
     except Exception as e:
-        logger.error(f"Search error: {e}")
-        await msg.edit_text(f"❌ Search error: {e}")
+        logger.warning(f"Spotify search failed: {e}")
+    
+    # Search YouTube (with error handling)
+    try:
+        from core.ytdlp_downloader import search_youtube
+        yt_results = await search_youtube(query, max_results=5)
+        for r in yt_results:
+            youtube_results.append({
+                "name": r.get("title", "Unknown"),
+                "artists": r.get("channel", "YouTube"),
+                "duration": r.get("duration", 0),
+                "youtube_url": r.get("url", ""),
+                "source": "youtube"
+            })
+    except Exception as e:
+        logger.warning(f"YouTube search failed: {e}")
+    
+    # Combine results
+    all_results = []
+    
+    # Add Spotify results with source tag
+    for track in spotify_results:
+        track["source"] = "spotify"
+        all_results.append(track)
+    
+    # Add YouTube results
+    all_results.extend(youtube_results)
+    
+    if not all_results:
+        await msg.edit_text("❌ No results found. Please try a different search.")
+        return
+    
+    # Cache all results
+    _search_cache[user_id] = all_results
+    
+    # Build results text
+    text = f"🔍 **Results for:** `{query}`\n\n"
+    
+    if spotify_results:
+        text += "🎵 **Spotify:**\n"
+        for i, track in enumerate(spotify_results[:5], 1):
+            text += f"  {i}. {track.get('name', 'Unknown')[:30]}\n"
+            text += f"      🎤 {track.get('artists', 'Unknown')[:25]}\n"
+        text += "\n"
+    
+    if youtube_results:
+        text += "📺 **YouTube:**\n"
+        offset = len(spotify_results)
+        for i, track in enumerate(youtube_results[:5], 1):
+            text += f"  {offset + i}. {track.get('name', 'Unknown')[:30]}\n"
+            text += f"      📺 {track.get('artists', 'Unknown')[:25]}\n"
+    
+    await msg.edit_text(
+        text,
+        reply_markup=search_results_keyboard(all_results, page=0, total_pages=1)
+    )
 
 
 async def handle_search_callback(client: Client, callback: CallbackQuery):
@@ -294,23 +331,57 @@ async def handle_search_callback(client: Client, callback: CallbackQuery):
         return
     
     if action == "add":
-        # Add selected track
-        track_id = parts[2] if len(parts) > 2 else ""
-        tracks = _search_cache.get(user_id, [])
-        
-        track_data = next((t for t in tracks if t.get("spotify_id") == track_id), None)
-        if not track_data:
-            await callback.answer("Track not found", show_alert=True)
-            return
-        
-        await callback.answer("⏳ Adding track...")
-        await callback.message.edit_text("⏳ Downloading track...")
-        
+        # Add selected track by index
         try:
-            await add_track_to_queue(player, track_data, callback.message)
-            exit_add_mode(user_id)
+            track_idx = int(parts[2]) if len(parts) > 2 else 0
+            tracks = _search_cache.get(user_id, [])
+            
+            if track_idx < 0 or track_idx >= len(tracks):
+                await callback.answer("Track not found", show_alert=True)
+                return
+            
+            track_data = tracks[track_idx]
+            source = track_data.get("source", "spotify")
+            
+            await callback.answer("⏳ Downloading...")
+            await callback.message.edit_text("⏳ Downloading track...")
+            
+            if source == "youtube":
+                # Direct YouTube download
+                from core.ytdlp_downloader import download_by_url
+                youtube_url = track_data.get("youtube_url", "")
+                if youtube_url:
+                    downloaded_path = await download_by_url(
+                        url=youtube_url,
+                        output_dir=config.AUDIO_DIR,
+                        audio_format="mp3",
+                        audio_quality=str(config.AUDIO_BITRATE)
+                    )
+                    if downloaded_path:
+                        from core.queue_manager import Track
+                        track = Track(
+                            id=str(uuid.uuid4())[:8],
+                            file_path=downloaded_path,
+                            title=track_data.get("name", "Unknown"),
+                            artist=track_data.get("artists", "YouTube"),
+                            added_by=player.owner_id
+                        )
+                        await player.add_track(track)
+                        await callback.message.edit_text(
+                            f"✅ Added!\n\n🎵 **{track.title}**\n📺 {track.artist}",
+                            reply_markup=radio_controls_keyboard()
+                        )
+                        exit_add_mode(user_id)
+                        return
+                await callback.message.edit_text("❌ Download failed")
+            else:
+                # Spotify download (uses existing flow with yt-dlp fallback)
+                await add_track_to_queue(player, track_data, callback.message)
+                exit_add_mode(user_id)
+                
         except Exception as e:
-            await callback.message.edit_text(f"❌ Failed: {e}")
+            logger.error(f"Search callback error: {e}")
+            await callback.message.edit_text(f"❌ Error: {e}")
             
     elif action == "page":
         page = int(parts[2]) if len(parts) > 2 else 0

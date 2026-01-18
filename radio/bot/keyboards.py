@@ -83,29 +83,21 @@ def add_mode_keyboard() -> InlineKeyboardMarkup:
 
 
 def search_results_keyboard(results: list, page: int = 0, total_pages: int = 1) -> InlineKeyboardMarkup:
-    """Keyboard for search results with pagination."""
+    """Keyboard for search results with pagination. Uses numeric indices."""
     buttons = []
     
-    # Add track buttons (max 5 per page)
-    for i, track in enumerate(results):
-        track_id = track.get("spotify_id", f"track_{i}")
-        title = track.get("name", "Unknown")[:30]
-        artist = track.get("artists", "Unknown")[:20]
+    # Add track buttons (max 10)
+    for i, track in enumerate(results[:10]):
+        source = track.get("source", "spotify")
+        icon = "🎵" if source == "spotify" else "📺"
+        title = track.get("name", "Unknown")[:25]
+        artist = track.get("artists", "Unknown")[:15]
         buttons.append([
             InlineKeyboardButton(
-                f"➕ {title} - {artist}",
-                callback_data=f"search:add:{track_id}"
+                f"{icon} {title} - {artist}",
+                callback_data=f"search:add:{i}"
             )
         ])
-    
-    # Pagination
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️ Prev", callback_data=f"search:page:{page-1}"))
-    if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("Next ▶️", callback_data=f"search:page:{page+1}"))
-    if nav_row:
-        buttons.append(nav_row)
     
     # Cancel button
     buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="radio:refresh")])
