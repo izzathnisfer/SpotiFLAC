@@ -58,9 +58,9 @@ async def handle_spotify_link(client: Client, message: Message):
     
     try:
         # Fetch metadata from SpotiFLAC API
-        async with httpx.AsyncClient(timeout=30) as http:
+        async with httpx.AsyncClient(timeout=60) as http:
             response = await http.get(
-                f"{config.SPOTIFLAC_API_URL}/api/metadata",
+                f"{config.SPOTIFLAC_API_URL}/metadata",
                 params={"url": text}
             )
             
@@ -179,9 +179,9 @@ async def download_track(track_data: dict) -> Path | None:
             "embed_max_quality_cover": False
         }
         
-        async with httpx.AsyncClient(timeout=120) as http:
+        async with httpx.AsyncClient(timeout=180) as http:
             response = await http.post(
-                f"{config.SPOTIFLAC_API_URL}/api/download",
+                f"{config.SPOTIFLAC_API_URL}/download",
                 json=download_request
             )
             
@@ -229,10 +229,10 @@ async def handle_search_query(client: Client, message: Message):
     msg = await message.reply("🔍 Searching...", quote=True)
     
     try:
-        async with httpx.AsyncClient(timeout=15) as http:
+        async with httpx.AsyncClient(timeout=30) as http:
             response = await http.get(
-                f"{config.SPOTIFLAC_API_URL}/api/search",
-                params={"q": query, "type": "track", "limit": 5}
+                f"{config.SPOTIFLAC_API_URL}/search",
+                params={"query": query, "limit": 5}
             )
             
             if response.status_code != 200:
