@@ -1,0 +1,30 @@
+# Radio Service Specific
+radio/.env
+radio/radio.db
+radio/audio/*.mp3
+radio/audio/*.flac
+radio/audio/*.m4a
+radio/audio/*.aac
+radio/assets/*.mp3
+!radio/assets/README.md
+!radio/audio/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Pyrogram session files
+*.session
+*.session-journal
