@@ -49,8 +49,14 @@ AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 ASSETS_DIR = BASE_DIR / "assets"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Fallback audio file
-FALLBACK_AUDIO = ASSETS_DIR / "no_songs_queue.mp3"
+# Fallback audio file - check multiple locations
+_fallback_candidates = [
+    AUDIO_DIR / "no-songs-in-queue.wav",
+    AUDIO_DIR / "no-songs-in-queue.mp3",
+    ASSETS_DIR / "no_songs_queue.mp3",
+    ASSETS_DIR / "no_songs_queue.wav",
+]
+FALLBACK_AUDIO = next((f for f in _fallback_candidates if f.exists()), _fallback_candidates[0])
 
 # ============================================
 # Logging
