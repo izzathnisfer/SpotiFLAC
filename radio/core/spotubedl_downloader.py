@@ -80,28 +80,39 @@ async def get_download_link(spotify_id: str) -> Optional[str]:
 async def download_track(
     query: str, 
     output_dir: Path,
-    filename: str = None
+    filename: str = None,
+    spotify_id: str = None
 ) -> Optional[str]:
     """
     Full workflow: Search -> Get Link -> Download File
+    If spotify_id is provided, skips search.
     """
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # 1. Search
-        results = await search_tracks(query)
-        if not results:
-            logger.warning(f"No results found for {query}")
-            return None
-            
-        track = results[0] # Best match
-        spotify_id = track.get("id")
+        track_name_for_log = query
         
+        if not spotify_id:
+            # 1. Search
+            results = await search_tracks(query)
+            if not results:
+                logger.warning(f"No results found for {query}")
+                return None
+                
+            track = results[0] # Best match
+            spotify_id = track.get("id")
+            track_name_for_log = f"{track.get('artist')} - {track.get('name')}"
+            
+            if not filename:
+                # Create safe filename from result
+                import re # Ensure re is imported if not at top level
+                safe_title = re.sub(r'[<>:"/\\|?*]', '', track.get("name", "track"))
+                safe_artist = re.sub(r'[<>:"/\\|?*]', '', track.get("artist", "artist"))
+                filename = f"{safe_artist} - {safe_title}.mp3"
+        
+        # If filename is still not set (e.g. spotify_id provided but no filename), use query or ID
         if not filename:
-            # Create safe filename from result
-            safe_title = re.sub(r'[<>:"/\\|?*]', '', track.get("name", "track"))
-            safe_artist = re.sub(r'[<>:"/\\|?*]', '', track.get("artist", "artist"))
-            filename = f"{safe_artist} - {safe_title}.mp3"
+            filename = f"{query}.mp3" if query else f"spotify_{spotify_id}.mp3"
             
         output_path = output_dir / filename
         if output_path.exists():
@@ -110,7 +121,7 @@ async def download_track(
         # 2. Get Link
         download_url = await get_download_link(spotify_id)
         if not download_url:
-            logger.error(f"Failed to generate download link for {query}")
+            logger.error(f"Failed to generate download link for {track_name_for_log}")
             return None
             
         # 3. Download File

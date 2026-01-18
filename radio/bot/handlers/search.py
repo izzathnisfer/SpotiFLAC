@@ -221,7 +221,7 @@ async def download_track(track_data: dict) -> Path | None:
 
 
 async def handle_search_query(client: Client, message: Message):
-    """Handle search text when in add mode. Searches both Spotify and YouTube."""
+    """Handle search text when in add mode. Searches SpotubeDL (Spotify)."""
     user_id = message.from_user.id
     
     if not is_in_add_mode(user_id):
@@ -242,79 +242,40 @@ async def handle_search_query(client: Client, message: Message):
         exit_add_mode(user_id)
         return
     
-    # Perform dual search (Spotify + YouTube)
-    msg = await message.reply("🔍 Searching Spotify & YouTube...", quote=True)
+    # Perform SpotubeDL Search
+    msg = await message.reply("🔍 Searching...", quote=True)
     
-    spotify_results = []
-    youtube_results = []
+    from core.spotubedl_downloader import search_tracks
+    results = await search_tracks(query)
     
-    # Search Spotify (with error handling)
-    try:
-        async with httpx.AsyncClient(timeout=15) as http:
-            response = await http.get(
-                f"{config.SPOTIFLAC_API_URL}/search",
-                params={"query": query, "limit": 5}
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if "error" not in data:
-                    spotify_results = data.get("tracks", [])[:5]
-    except Exception as e:
-        logger.warning(f"Spotify search failed: {e}")
-    
-    # Search YouTube (with error handling)
-    try:
-        from core.ytdlp_downloader import search_youtube
-        yt_results = await search_youtube(query, max_results=5)
-        for r in yt_results:
-            youtube_results.append({
-                "name": r.get("title", "Unknown"),
-                "artists": r.get("channel", "YouTube"),
-                "duration": r.get("duration", 0),
-                "youtube_url": r.get("url", ""),
-                "source": "youtube"
-            })
-    except Exception as e:
-        logger.warning(f"YouTube search failed: {e}")
-    
-    # Combine results
-    all_results = []
-    
-    # Add Spotify results with source tag
-    for track in spotify_results:
-        track["source"] = "spotify"
-        all_results.append(track)
-    
-    # Add YouTube results
-    all_results.extend(youtube_results)
-    
-    if not all_results:
-        await msg.edit_text("❌ No results found. Please try a different search.")
+    if not results:
+        await msg.edit_text("❌ No results found via SpotubeDL.")
         return
     
-    # Cache all results
-    _search_cache[user_id] = all_results
+    # Process results
+    formatted_results = []
+    
+    # SpotubeDL keys: name, artist, id, url, etc.
+    for r in results:
+        formatted_results.append({
+            "name": r.get("name", "Unknown"),
+            "artists": r.get("artist", "Unknown"),
+            "spotubedl_id": r.get("id"),
+            "source": "spotubedl"
+        })
+    
+    # Cache results
+    _search_cache[user_id] = formatted_results
     
     # Build results text
     text = f"🔍 **Results for:** `{query}`\n\n"
     
-    if spotify_results:
-        text += "🎵 **Spotify:**\n"
-        for i, track in enumerate(spotify_results[:5], 1):
-            text += f"  {i}. {track.get('name', 'Unknown')[:30]}\n"
-            text += f"      🎤 {track.get('artists', 'Unknown')[:25]}\n"
-        text += "\n"
-    
-    if youtube_results:
-        text += "📺 **YouTube:**\n"
-        offset = len(spotify_results)
-        for i, track in enumerate(youtube_results[:5], 1):
-            text += f"  {offset + i}. {track.get('name', 'Unknown')[:30]}\n"
-            text += f"      📺 {track.get('artists', 'Unknown')[:25]}\n"
+    for i, track in enumerate(formatted_results[:10], 1):
+        text += f" {i}. {track['name'][:30]}\n      🎤 {track['artists'][:25]}\n"
     
     await msg.edit_text(
         text,
-        reply_markup=search_results_keyboard(all_results, page=0, total_pages=1)
+        reply_markup=search_results_keyboard(formatted_results, page=0, total_pages=1)
     )
 
 
@@ -350,14 +311,15 @@ async def handle_search_callback(client: Client, callback: CallbackQuery):
             track_name = track_data.get("name", "Unknown")
             artist_name = track_data.get("artists", "Unknown")
             
-            from core.utils import clean_search_query
-            search_query = clean_search_query(artist_name, track_name)
+            # Use SpotubeDL ONLY (Direct ID if available)
+            spotubedl_id = track_data.get("spotubedl_id")
+            search_query = f"{artist_name} - {track_name}"
             
-            # Use SpotubeDL ONLY (as per user request)
             from core.spotubedl_downloader import download_track
             downloaded_path = await download_track(
                 query=search_query,
-                output_dir=config.AUDIO_DIR
+                output_dir=config.AUDIO_DIR,
+                spotify_id=spotubedl_id
             )
             
             if downloaded_path:
