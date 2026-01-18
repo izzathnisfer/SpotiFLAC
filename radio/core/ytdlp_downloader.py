@@ -2,24 +2,76 @@
 Radio Service - YT-DLP Downloader
 
 Downloads audio from YouTube as a fallback when SpotiFLAC fails.
-Uses yt-dlp to search YouTube and download audio.
+Uses yt-dlp Python module directly (not subprocess).
 """
 
 import asyncio
 import logging
 import re
-import shutil
+import sys
 from pathlib import Path
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 
 import config
 
 logger = logging.getLogger(__name__)
 
+# Thread pool for running yt-dlp synchronously
+_executor = ThreadPoolExecutor(max_workers=3)
+
+
+def _get_ytdlp():
+    """Import and return yt_dlp module."""
+    try:
+        import yt_dlp
+        return yt_dlp
+    except ImportError:
+        logger.error("yt-dlp module not installed!")
+        return None
+
 
 def is_ytdlp_available() -> bool:
-    """Check if yt-dlp is installed."""
-    return shutil.which("yt-dlp") is not None
+    """Check if yt-dlp is available."""
+    return _get_ytdlp() is not None
+
+
+def _search_youtube_sync(query: str, max_results: int = 5) -> list[dict]:
+    """Synchronous YouTube search using yt-dlp module."""
+    yt_dlp = _get_ytdlp()
+    if not yt_dlp:
+        return []
+    
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,
+        'force_generic_extractor': False,
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
+            
+            if not result or 'entries' not in result:
+                return []
+            
+            results = []
+            for entry in result['entries'][:max_results]:
+                if entry:
+                    results.append({
+                        "id": entry.get("id", ""),
+                        "title": entry.get("title", "Unknown"),
+                        "channel": entry.get("channel", entry.get("uploader", "Unknown")),
+                        "duration": entry.get("duration", 0),
+                        "url": f"https://www.youtube.com/watch?v={entry.get('id', '')}",
+                        "source": "youtube"
+                    })
+            return results
+            
+    except Exception as e:
+        logger.error(f"YouTube search error: {e}")
+        return []
 
 
 async def search_youtube(query: str, max_results: int = 5) -> list[dict]:
@@ -27,51 +79,72 @@ async def search_youtube(query: str, max_results: int = 5) -> list[dict]:
     Search YouTube for tracks.
     Returns list of results with title, channel, duration, url.
     """
-    if not is_ytdlp_available():
-        logger.warning("yt-dlp not available")
-        return []
-    
-    cmd = [
-        "yt-dlp",
-        f"ytsearch{max_results}:{query}",
-        "--dump-json",
-        "--flat-playlist",
-        "--no-warnings"
-    ]
-    
+    loop = asyncio.get_event_loop()
     try:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+        results = await asyncio.wait_for(
+            loop.run_in_executor(_executor, _search_youtube_sync, query, max_results),
+            timeout=30
         )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
-        
-        results = []
-        for line in stdout.decode().strip().split('\n'):
-            if line:
-                import json
-                try:
-                    data = json.loads(line)
-                    results.append({
-                        "id": data.get("id", ""),
-                        "title": data.get("title", "Unknown"),
-                        "channel": data.get("channel", data.get("uploader", "Unknown")),
-                        "duration": data.get("duration", 0),
-                        "url": f"https://www.youtube.com/watch?v={data.get('id', '')}",
-                        "source": "youtube"
-                    })
-                except json.JSONDecodeError:
-                    continue
-        
         return results
-        
     except asyncio.TimeoutError:
         logger.warning("YouTube search timed out")
         return []
     except Exception as e:
         logger.error(f"YouTube search error: {e}")
         return []
+
+
+def _download_youtube_sync(query: str, output_dir: Path, audio_format: str, audio_quality: str) -> Optional[str]:
+    """Synchronous YouTube download using yt-dlp module."""
+    yt_dlp = _get_ytdlp()
+    if not yt_dlp:
+        return None
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Clean query for filename
+    safe_query = re.sub(r'[<>:"/\\|?*]', '', query)[:80]
+    output_template = str(output_dir / f"{safe_query}.%(ext)s")
+    
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_template,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': audio_format,
+            'preferredquality': audio_quality,
+        }],
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+    }
+    
+    logger.info(f"Downloading from YouTube: {query}")
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = ydl.extract_info(f"ytsearch1:{query}", download=True)
+            
+            if result and 'entries' in result and result['entries']:
+                entry = result['entries'][0]
+                # Find the downloaded file
+                for ext in [audio_format, 'mp3', 'm4a', 'opus', 'webm']:
+                    potential_file = output_dir / f"{safe_query}.{ext}"
+                    if potential_file.exists():
+                        logger.info(f"Downloaded: {potential_file}")
+                        return str(potential_file)
+            
+            # Try to find any file matching pattern
+            for f in output_dir.glob(f"{safe_query}*"):
+                if f.suffix.lower() in ['.mp3', '.m4a', '.opus', '.webm', '.flac']:
+                    return str(f)
+            
+            logger.warning("Downloaded file not found")
+            return None
+            
+    except Exception as e:
+        logger.error(f"YouTube download error: {e}")
+        return None
 
 
 async def download_from_youtube(
@@ -84,63 +157,85 @@ async def download_from_youtube(
     Download audio from YouTube by searching for the query.
     Returns path to downloaded file or None on failure.
     """
-    if not is_ytdlp_available():
-        logger.error("yt-dlp not installed!")
-        return None
-    
     if output_dir is None:
         output_dir = config.AUDIO_DIR
     
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Clean query for filename
-    safe_query = re.sub(r'[<>:"/\\|?*]', '', query)[:100]
-    output_template = str(output_dir / f"{safe_query}.%(ext)s")
-    
-    cmd = [
-        "yt-dlp",
-        f"ytsearch1:{query}",
-        "--extract-audio",
-        "--audio-format", audio_format,
-        "--audio-quality", f"{audio_quality}k",
-        "--output", output_template,
-        "--no-playlist",
-        "--no-warnings",
-        "--quiet"
-    ]
-    
-    logger.info(f"Downloading from YouTube: {query}")
-    
+    loop = asyncio.get_event_loop()
     try:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                _executor, 
+                _download_youtube_sync, 
+                query, output_dir, audio_format, audio_quality
+            ),
+            timeout=180
         )
-        await asyncio.wait_for(process.communicate(), timeout=120)
-        
-        if process.returncode != 0:
-            logger.error(f"yt-dlp failed with code {process.returncode}")
-            return None
-        
-        # Find the downloaded file
-        for ext in [audio_format, 'mp3', 'm4a', 'opus', 'webm']:
-            potential_file = output_dir / f"{safe_query}.{ext}"
-            if potential_file.exists():
-                logger.info(f"Downloaded: {potential_file}")
-                return potential_file
-        
-        # Try to find any recently created audio file
-        audio_files = list(output_dir.glob(f"{safe_query}*"))
-        if audio_files:
-            return audio_files[0]
-        
-        logger.warning("Downloaded file not found")
-        return None
-        
+        return Path(result) if result else None
     except asyncio.TimeoutError:
         logger.error("YouTube download timed out")
         return None
+    except Exception as e:
+        logger.error(f"YouTube download error: {e}")
+        return None
+
+
+def _download_by_url_sync(url: str, output_dir: Path, audio_format: str, audio_quality: str) -> Optional[str]:
+    """Synchronous download from specific URL using yt-dlp module."""
+    yt_dlp = _get_ytdlp()
+    if not yt_dlp:
+        return None
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_template = str(output_dir / "%(title)s.%(ext)s")
+    
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_template,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': audio_format,
+            'preferredquality': audio_quality,
+        }],
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+    }
+    
+    logger.info(f"Downloading from URL: {url}")
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = ydl.extract_info(url, download=True)
+            
+            if result:
+                title = result.get('title', 'download')
+                # Clean title for filename
+                safe_title = re.sub(r'[<>:"/\\|?*]', '', title)[:100]
+                
+                # Find the downloaded file
+                for ext in [audio_format, 'mp3', 'm4a', 'opus', 'webm']:
+                    potential_file = output_dir / f"{safe_title}.{ext}"
+                    if potential_file.exists():
+                        logger.info(f"Downloaded: {potential_file}")
+                        return str(potential_file)
+                
+                # Try glob match
+                for f in output_dir.glob(f"*{result.get('id', '')}*"):
+                    if f.suffix.lower() in ['.mp3', '.m4a', '.opus', '.webm', '.flac']:
+                        return str(f)
+                
+                # Last resort - find most recent audio file
+                audio_files = sorted(
+                    [f for f in output_dir.glob("*") if f.suffix.lower() in ['.mp3', '.m4a', '.opus', '.webm', '.flac']],
+                    key=lambda x: x.stat().st_mtime,
+                    reverse=True
+                )
+                if audio_files:
+                    return str(audio_files[0])
+            
+            logger.warning("Downloaded file not found")
+            return None
+            
     except Exception as e:
         logger.error(f"YouTube download error: {e}")
         return None
@@ -155,51 +250,20 @@ async def download_by_url(
     """
     Download audio from a specific YouTube URL.
     """
-    if not is_ytdlp_available():
-        logger.error("yt-dlp not installed!")
-        return None
-    
     if output_dir is None:
         output_dir = config.AUDIO_DIR
     
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_template = str(output_dir / "%(title)s.%(ext)s")
-    
-    cmd = [
-        "yt-dlp",
-        url,
-        "--extract-audio",
-        "--audio-format", audio_format,
-        "--audio-quality", f"{audio_quality}k",
-        "--output", output_template,
-        "--no-playlist",
-        "--no-warnings",
-        "--print", "after_move:filepath"
-    ]
-    
-    logger.info(f"Downloading from URL: {url}")
-    
+    loop = asyncio.get_event_loop()
     try:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                _executor,
+                _download_by_url_sync,
+                url, output_dir, audio_format, audio_quality
+            ),
+            timeout=180
         )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
-        
-        if process.returncode != 0:
-            logger.error(f"yt-dlp failed: {stderr.decode()}")
-            return None
-        
-        # Get the filepath from stdout
-        filepath = stdout.decode().strip().split('\n')[-1]
-        if filepath and Path(filepath).exists():
-            logger.info(f"Downloaded: {filepath}")
-            return Path(filepath)
-        
-        logger.warning("Downloaded file path not found")
-        return None
-        
+        return Path(result) if result else None
     except asyncio.TimeoutError:
         logger.error("YouTube download timed out")
         return None
