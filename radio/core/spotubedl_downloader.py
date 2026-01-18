@@ -130,11 +130,23 @@ async def download_track(
                 if resp.status_code != 200:
                     logger.error(f"Download request failed: {resp.status_code}. Trying SoundCloud fallback...")
                     return await _fallback_soundcloud(track_name_for_log, output_dir, filename)
-                    
+                
+                # Validation: Check Content-Type
+                content_type = resp.headers.get("content-type", "")
+                if "audio" not in content_type and "octet-stream" not in content_type:
+                    logger.error(f"Invalid content type: {content_type}. Trying SoundCloud fallback...")
+                    return await _fallback_soundcloud(track_name_for_log, output_dir, filename)
+
                 with open(output_path, 'wb') as f:
                     async for chunk in resp.aiter_bytes():
                         f.write(chunk)
-                        
+        
+        # Validation: Check File Size
+        if output_path.stat().st_size < 102400: # < 100KB
+            logger.error(f"File too small ({output_path.stat().st_size} bytes). Likely error page. Trying SoundCloud fallback...")
+            output_path.unlink(missing_ok=True) # Delete bad file
+            return await _fallback_soundcloud(track_name_for_log, output_dir, filename)
+
         logger.info(f"Downloaded via SpotubeDL: {output_path}")
         return str(output_path)
         
