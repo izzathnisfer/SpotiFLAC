@@ -36,7 +36,7 @@ async def get_download_link(spotify_id: str) -> Optional[str]:
     3. Decode -> return direct URL
     """
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             # 1. Get Metadata
             meta_resp = await client.get(f"{API_BASE}/metadata/{spotify_id}")
             if meta_resp.status_code != 200:
@@ -121,22 +121,44 @@ async def download_track(
         # 2. Get Link
         download_url = await get_download_link(spotify_id)
         if not download_url:
-            logger.error(f"Failed to generate download link for {track_name_for_log}")
-            return None
+            logger.error(f"Failed to generate download link for {track_name_for_log}. Trying SoundCloud fallback...")
+            return await _fallback_soundcloud(track_name_for_log, output_dir, filename)
             
         # 3. Download File
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             async with client.stream('GET', download_url) as resp:
                 if resp.status_code != 200:
-                    logger.error(f"Download request failed: {resp.status_code}")
-                    return None
+                    logger.error(f"Download request failed: {resp.status_code}. Trying SoundCloud fallback...")
+                    return await _fallback_soundcloud(track_name_for_log, output_dir, filename)
                     
                 with open(output_path, 'wb') as f:
                     async for chunk in resp.aiter_bytes():
                         f.write(chunk)
                         
-        logger.info(f"Downloaded: {output_path}")
+        logger.info(f"Downloaded via SpotubeDL: {output_path}")
         return str(output_path)
+        
+    except Exception as e:
+        logger.error(f"SpotubeDL download process failed: {e}. Trying SoundCloud fallback...")
+        return await _fallback_soundcloud(query, output_dir)
+
+async def _fallback_soundcloud(query: str, output_dir: Path, filename: str = None) -> Optional[str]:
+    """Fallback to SoundCloud download using yt-dlp."""
+    try:
+        from core.ytdlp_downloader import download_from_youtube
+        logger.info(f"Fallback: Searching SoundCloud for {query}")
+        
+        # We need to pass audio_format and quality for consistency
+        # Assuming defaults: mp3, 192k (from config? we don't have config here easily, hardcode reasonable default)
+        return await download_from_youtube(
+            query=query,
+            output_dir=output_dir,
+            audio_format="mp3",
+            audio_quality="192"
+        )
+    except Exception as e:
+        logger.error(f"Fallback failed: {e}")
+        return None
         
     except Exception as e:
         logger.error(f"SpotubeDL download process failed: {e}")
