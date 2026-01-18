@@ -67,6 +67,10 @@ class StreamPlayer:
         
         # Fallback audio control
         self._playing_fallback: bool = False
+        
+    @property
+    def queue(self) -> SessionQueue:
+        return self._queue
 
     async def start(self) -> bool:
         """Start the player, playing from queue or fallback."""
