@@ -182,19 +182,52 @@ class StreamPlayer:
             return False
     
     async def _play_fallback(self) -> bool:
-        """Play fallback audio (no songs in queue message)."""
+        """
+        Play fallback audio (no songs in queue message).
+        Plays the TTS message, then 23 seconds of silence, looping every ~30 seconds.
+        """
         self._playing_fallback = True
         self.state = PlayerState.WAITING_FOR_TRACKS
+        self.current_track_title = "No songs in queue..."
         
         # Check if fallback audio exists
-        if config.FALLBACK_AUDIO.exists():
-            logger.info(f"Player {self.session_id}: Playing fallback audio")
-            self.current_track_title = "No songs in queue..."
-            return await self._start_ffmpeg(config.FALLBACK_AUDIO, "No songs in queue...")
+        if not config.FALLBACK_AUDIO.exists():
+            logger.warning(f"Player {self.session_id}: Fallback audio not found")
+            return False
         
-        # Generate silence as last resort
-        logger.warning(f"Player {self.session_id}: Fallback audio not found, generating silence")
-        return False
+        logger.info(f"Player {self.session_id}: Playing fallback audio (loop every 30s)")
+        
+        # FFmpeg command that plays the TTS then 23 seconds of silence
+        # This creates a ~30 second loop (7 sec TTS + 23 sec silence)
+        cmd = [
+            "ffmpeg",
+            "-re",  # Read at native rate
+            "-i", str(config.FALLBACK_AUDIO),
+            "-f", "lavfi", "-t", "23", "-i", "anullsrc=r=44100:cl=stereo",  # 23 sec silence
+            "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[out]",  # Concatenate audio + silence
+            "-map", "[out]",
+            "-c:a", "aac",
+            "-b:a", f"{config.AUDIO_BITRATE}k",
+            "-ac", "2",
+            "-ar", "44100",
+            "-f", "adts",
+            "-loglevel", "error",
+            "pipe:1"
+        ]
+        
+        try:
+            self._process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0
+            )
+            self.state = PlayerState.WAITING_FOR_TRACKS
+            self.last_activity = time.time()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to start fallback audio: {e}")
+            return False
     
     async def _stop_process(self):
         """Internal: Stop the FFmpeg process."""
