@@ -349,7 +349,9 @@ async def handle_search_callback(client: Client, callback: CallbackQuery):
             # For all sources, use search-based download (SoundCloud works from AWS)
             track_name = track_data.get("name", "Unknown")
             artist_name = track_data.get("artists", "Unknown")
-            search_query = f"{artist_name} - {track_name}"
+            
+            from core.utils import clean_search_query
+            search_query = clean_search_query(artist_name, track_name)
             
             from core.ytdlp_downloader import download_from_youtube
             downloaded_path = await download_from_youtube(
