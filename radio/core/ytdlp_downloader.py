@@ -139,32 +139,36 @@ def _download_youtube_sync(query: str, output_dir: Path, audio_format: str, audi
     if cookies_path:
         ydl_opts['cookiefile'] = cookies_path
     
-    logger.info(f"Downloading from YouTube: {query}")
+    # Try SoundCloud first (works from AWS), then YouTube as fallback
+    search_providers = ['scsearch1', 'ytsearch1']
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            result = ydl.extract_info(f"ytsearch1:{query}", download=True)
-            
-            if result and 'entries' in result and result['entries']:
-                entry = result['entries'][0]
-                # Find the downloaded file
-                for ext in [audio_format, 'mp3', 'm4a', 'opus', 'webm']:
-                    potential_file = output_dir / f"{safe_query}.{ext}"
-                    if potential_file.exists():
-                        logger.info(f"Downloaded: {potential_file}")
-                        return str(potential_file)
-            
-            # Try to find any file matching pattern
-            for f in output_dir.glob(f"{safe_query}*"):
-                if f.suffix.lower() in ['.mp3', '.m4a', '.opus', '.webm', '.flac']:
-                    return str(f)
-            
-            logger.warning("Downloaded file not found")
-            return None
-            
-    except Exception as e:
-        logger.error(f"YouTube download error: {e}")
-        return None
+    for provider in search_providers:
+        logger.info(f"Downloading with {provider}: {query}")
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                result = ydl.extract_info(f"{provider}:{query}", download=True)
+                
+                if result and 'entries' in result and result['entries']:
+                    entry = result['entries'][0]
+                    # Find the downloaded file
+                    for ext in [audio_format, 'mp3', 'm4a', 'opus', 'webm']:
+                        potential_file = output_dir / f"{safe_query}.{ext}"
+                        if potential_file.exists():
+                            logger.info(f"Downloaded: {potential_file}")
+                            return str(potential_file)
+                
+                # Try to find any file matching pattern
+                for f in output_dir.glob(f"{safe_query}*"):
+                    if f.suffix.lower() in ['.mp3', '.m4a', '.opus', '.webm', '.flac']:
+                        return str(f)
+                        
+        except Exception as e:
+            logger.warning(f"{provider} download failed: {e}")
+            continue
+    
+    logger.error("All download sources failed")
+    return None
 
 
 async def download_from_youtube(
