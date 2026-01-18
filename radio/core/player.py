@@ -56,6 +56,7 @@ class StreamPlayer:
         
         # Listener tracking
         self.listener_count: int = 0
+        self._active_streams: int = 0
         
         # Timestamps
         self.created_at: float = time.time()
@@ -363,7 +364,7 @@ class StreamPlayer:
             "current_title": self.current_track_title,
             "playing_fallback": self._playing_fallback,
             "listener_count": self.listener_count,
-            "active_streams": self._active_streams,
+            "active_streams": len(self._clients),
             "pending_tracks": self._queue.get_pending_count(),
             "created_at": self.created_at,
             "last_activity": self.last_activity,
