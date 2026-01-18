@@ -99,13 +99,23 @@ class StreamPlayer:
         """Add a track to the queue and start playing if needed."""
         item = self._queue.add_track(track)
         
+        logger.info(f"Player {self.session_id}: Added track '{track.title}'. State: {self.state}")
+        
         # If we're waiting for tracks, start playing
         if self.state == PlayerState.WAITING_FOR_TRACKS or self.state == PlayerState.STOPPED:
+            logger.info(f"Player {self.session_id}: Interrupting fallback/idle...")
             async with self._lock:
                 await self._stop_process()
                 next_item = self._queue.advance()
                 if next_item:
-                    await self._start_ffmpeg(next_item.track.file_path, next_item.track.title)
+                    logger.info(f"Player {self.session_id}: Advancing to '{next_item.track.title}'")
+                    success = await self._start_ffmpeg(next_item.track.file_path, next_item.track.title)
+                    if not success:
+                        logger.error(f"Player {self.session_id}: Failed to start FFmpeg for '{next_item.track.title}'")
+                else:
+                    logger.warning(f"Player {self.session_id}: Advance failed (Queue empty?)")
+        else:
+             logger.info(f"Player {self.session_id}: Not interrupting. State is {self.state}")
         
         return item
     
