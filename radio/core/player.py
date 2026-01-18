@@ -183,10 +183,12 @@ class StreamPlayer:
                             pass
                 else:
                     # Stream ended (track finished) or no data
-                    if self._process.poll() is not None:
-                        logger.info(f"Player {self.session_id}: Track finished (EOF), Return Code: {self._process.returncode}")
+                    # Check if process exists before polling to avoid race condition with _stop_process
+                    process = self._process
+                    if process and process.poll() is not None:
+                        logger.info(f"Player {self.session_id}: Track finished (EOF), Return Code: {process.returncode}")
                         
-                        stderr_out = self._process.stderr.read() if self._process.stderr else b""
+                        stderr_out = process.stderr.read() if process.stderr else b""
                         if stderr_out:
                             logger.error(f"FFmpeg stderr: {stderr_out.decode('utf-8', errors='ignore')}")
 
@@ -195,6 +197,12 @@ class StreamPlayer:
                         
                         # Auto-advance
                         async with self._lock:
+                            # CRITICAL: Verify the process hasn't changed while we waited for lock
+                            # This prevents the loop from stopping a NEW process started by add_track
+                            if self._process != process:
+                                logger.info(f"Player {self.session_id}: Process changed during lock wait. Ignoring EOF of old process.")
+                                continue
+
                             await self._stop_process()
                             next_item = self._queue.advance()
                             if next_item:
