@@ -94,17 +94,24 @@ class StreamPlayer:
         try:
             while self.state != PlayerState.STOPPED:
                 if not self._process or not self._process.stdout:
+                    # logger.debug(f"Player {self.session_id}: No process/stdout. State: {self.state}")
                     await asyncio.sleep(0.1)
                     continue
 
                 # Read chunk (blocking read in executor)
-                chunk = await loop.run_in_executor(
-                    None, 
-                    self._process.stdout.read, 
-                    chunk_size
-                )
+                try:
+                    chunk = await loop.run_in_executor(
+                        None, 
+                        self._process.stdout.read, 
+                        chunk_size
+                    )
+                except Exception as read_err:
+                    logger.error(f"Player {self.session_id}: Read error: {read_err}")
+                    await asyncio.sleep(0.1)
+                    continue
                 
                 if chunk:
+                    # logger.debug(f"Player {self.session_id}: Read {len(chunk)} bytes. Clients: {len(self._clients)}")
                     self.last_activity = time.time()
                     # Fan out to all connected clients
                     for client_queue in list(self._clients):
@@ -119,9 +126,14 @@ class StreamPlayer:
                         except Exception:
                             pass
                 else:
-                    # Stream ended (track finished)
+                    # Stream ended (track finished) or no data
                     if self._process.poll() is not None:
-                        logger.info(f"Player {self.session_id}: Track finished (EOF)")
+                        logger.info(f"Player {self.session_id}: Track finished (EOF), Return Code: {self._process.returncode}")
+                        
+                        stderr_out = self._process.stderr.read() if self._process.stderr else b""
+                        if stderr_out:
+                            logger.error(f"FFmpeg stderr: {stderr_out.decode('utf-8', errors='ignore')}")
+
                         if self._on_track_finished:
                             await self._on_track_finished()
                         
@@ -135,12 +147,15 @@ class StreamPlayer:
                                 if self._on_queue_empty:
                                     await self._on_queue_empty()
                                 await self._play_fallback()
-                    await asyncio.sleep(0.1)
+                    else:
+                        # Process alive but no data?
+                        # logger.warning(f"Player {self.session_id}: Read 0 bytes but process alive")
+                        await asyncio.sleep(0.01)
                     
         except asyncio.CancelledError:
             logger.info(f"Player {self.session_id}: Broadcast loop cancelled")
         except Exception as e:
-            logger.error(f"Player {self.session_id}: Broadcast error: {e}")
+            logger.error(f"Player {self.session_id}: Broadcast error: {e}", exc_info=True)
         finally:
             self._broadcast_task = None
 
