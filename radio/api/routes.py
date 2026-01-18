@@ -1,17 +1,20 @@
 """
-Radio Streaming Service - FastAPI Routes
+Radio Streaming Service - FastAPI Routes (Phase 2)
 
-HTTP endpoints for audio streaming.
+HTTP endpoints for audio streaming with queue support.
 """
 
 import logging
+import uuid
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 
-from core.player import get_session, create_session, get_all_sessions, StreamSession
+from core.player import get_player, create_player, remove_player, get_all_players, StreamPlayer
+from core.queue_manager import Track, get_queue
+from core.session_manager import get_session_manager
 import config
 
 logger = logging.getLogger(__name__)
@@ -22,12 +25,14 @@ router = APIRouter()
 @router.get("/health")
 async def health_check():
     """Health check endpoint."""
+    players = get_all_players()
     return {
         "status": "ok",
         "service": "radio",
         "port": config.RADIO_PORT,
         "max_sessions": config.MAX_SESSIONS,
-        "active_sessions": len(get_all_sessions())
+        "active_sessions": len(players),
+        "total_listeners": sum(p.listener_count for p in players)
     }
 
 
@@ -35,42 +40,37 @@ async def health_check():
 async def stream_audio(session_id: str, request: Request):
     """
     Stream audio for a specific session.
-    
-    This is the main endpoint that VLC connects to.
-    URL format: http://<IP>:8766/stream/<session_id>
+    VLC connects here: http://<IP>:8766/stream/<session_id>
     """
-    session = get_session(session_id)
+    player = get_player(session_id)
     
-    if not session:
-        # For Phase 1 testing, create a test session with hardcoded audio
+    if not player:
+        # For backward compatibility with Phase 1 testing
         if session_id == "test":
-            session = await create_test_session()
+            player = await create_test_player()
         else:
             raise HTTPException(
                 status_code=404, 
                 detail=f"Session {session_id} not found. Start a session via Telegram first."
             )
     
-    if not session.is_stream_active():
-        raise HTTPException(
-            status_code=503,
-            detail="Stream is not active. No audio is currently playing."
-        )
+    # Start the player if not already playing
+    if not player.is_playing():
+        await player.start()
     
-    # Increment listener count
-    session.listener_count += 1
+    # Track listener
+    player.listener_count += 1
     client_ip = request.client.host if request.client else "unknown"
-    logger.info(f"New listener connected to session {session_id} from {client_ip}")
+    logger.info(f"Listener connected to session {session_id} from {client_ip} (total: {player.listener_count})")
     
     async def stream_with_cleanup():
         """Generator that cleans up on disconnect."""
         try:
-            async for chunk in session.stream_audio():
+            async for chunk in player.stream_audio():
                 yield chunk
         finally:
-            # Decrement listener count on disconnect
-            session.listener_count = max(0, session.listener_count - 1)
-            logger.info(f"Listener disconnected from session {session_id}. Remaining: {session.listener_count}")
+            player.listener_count = max(0, player.listener_count - 1)
+            logger.info(f"Listener disconnected from session {session_id}. Remaining: {player.listener_count}")
     
     return StreamingResponse(
         stream_with_cleanup(),
@@ -87,53 +87,107 @@ async def stream_audio(session_id: str, request: Request):
 @router.get("/sessions")
 async def list_sessions():
     """List all active sessions (admin endpoint)."""
-    sessions = get_all_sessions()
+    players = get_all_players()
     return {
-        "count": len(sessions),
+        "count": len(players),
         "max": config.MAX_SESSIONS,
-        "sessions": [s.get_status() for s in sessions]
+        "total_listeners": sum(p.listener_count for p in players),
+        "sessions": [p.get_status() for p in players]
     }
 
 
 @router.get("/session/{session_id}")
 async def get_session_info(session_id: str):
     """Get info about a specific session."""
-    session = get_session(session_id)
-    if not session:
+    player = get_player(session_id)
+    if not player:
         raise HTTPException(status_code=404, detail="Session not found")
-    return session.get_status()
+    return player.get_status()
 
 
-async def create_test_session() -> StreamSession:
-    """
-    Create a test session for Phase 1 testing.
-    Uses a hardcoded test audio file.
-    """
-    # Look for any audio file in the audio directory
+@router.get("/session/{session_id}/queue")
+async def get_session_queue(session_id: str):
+    """Get the queue for a session."""
+    player = get_player(session_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return player.queue.to_dict()
+
+
+@router.post("/session/{session_id}/skip")
+async def skip_track(session_id: str):
+    """Skip the current track."""
+    player = get_player(session_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    await player.skip()
+    return {"success": True, "message": "Skipped to next track"}
+
+
+@router.post("/session/{session_id}/pause")
+async def pause_session(session_id: str):
+    """Pause the session."""
+    player = get_player(session_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    await player.pause()
+    return {"success": True, "message": "Paused"}
+
+
+@router.post("/session/{session_id}/resume")
+async def resume_session(session_id: str):
+    """Resume the session."""
+    player = get_player(session_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    await player.resume()
+    return {"success": True, "message": "Resumed"}
+
+
+@router.delete("/session/{session_id}")
+async def stop_session(session_id: str):
+    """Stop and remove a session."""
+    player = get_player(session_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    await player.stop()
+    remove_player(session_id)
+    return {"success": True, "message": "Session stopped"}
+
+
+async def create_test_player() -> StreamPlayer:
+    """Create a test player for Phase 1/2 testing."""
+    # Look for any audio file
     audio_files = list(config.AUDIO_DIR.glob("*.mp3")) + \
                   list(config.AUDIO_DIR.glob("*.flac")) + \
                   list(config.AUDIO_DIR.glob("*.m4a"))
     
-    # Also check for fallback audio
     if config.FALLBACK_AUDIO.exists():
         audio_files.append(config.FALLBACK_AUDIO)
     
     if not audio_files:
         raise HTTPException(
             status_code=503,
-            detail=f"No audio files found. Add files to {config.AUDIO_DIR} or generate the fallback audio."
+            detail=f"No audio files found in {config.AUDIO_DIR}"
         )
     
-    # Use the first audio file found
-    test_file = audio_files[0]
-    logger.info(f"Creating test session with file: {test_file}")
+    # Create player
+    player = create_player("test", owner_id=0)
     
-    # Create session
-    session = create_session("test", owner_id=0, owner_username="test")
+    # Add all audio files to queue
+    for i, audio_file in enumerate(audio_files[:5]):  # Max 5 test files
+        track = Track(
+            id=str(uuid.uuid4())[:8],
+            file_path=audio_file,
+            title=audio_file.stem,
+            artist="Test",
+            added_by=0
+        )
+        await player.add_track(track)
     
-    # Start streaming
-    success = await session.start_stream(test_file)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to start stream")
-    
-    return session
+    logger.info(f"Created test player with {len(audio_files)} tracks")
+    return player
