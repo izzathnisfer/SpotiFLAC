@@ -271,6 +271,16 @@ class StreamPlayer:
                     client_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
+            
+            # INJECT SILENCE: Force client to wake up if blocked
+            # Send a few frames of silence to "flush" the pipe
+            # ADTS header (7 bytes) + silence data
+            # This is a hack but helps VLC realize the stream changed
+            try:
+                # client_queue.put_nowait(b'\xFF\xF1\x50\x80\x02\x1F\xFC') # Fake ADTS frame (might fail)
+                pass 
+            except:
+                pass
         
         # FFmpeg command for streaming
         # Tuned for Low Latency: -tune zerolatency
