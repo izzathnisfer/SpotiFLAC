@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 sys.path.append(os.getcwd())
+sys.path.append(os.path.join(os.getcwd(), 'radio'))
 
 from radio.core.ytdlp_downloader import download_from_youtube
 import config
